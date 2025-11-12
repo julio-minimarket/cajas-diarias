@@ -3,18 +3,26 @@ import streamlit as st
 import pandas as pd
 from datetime import date, datetime
 import os
-from dotenv import load_dotenv
+
+# Intentar cargar dotenv solo si existe
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except:
+    pass
+
 from supabase import create_client, Client
 
-# Cargar variables de entorno
-load_dotenv()
-
 # Configuración de Supabase
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+if hasattr(st, "secrets") and "SUPABASE_URL" in st.secrets:
+    SUPABASE_URL = st.secrets["SUPABASE_URL"]
+    SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
+else:
+    SUPABASE_URL = os.getenv("SUPABASE_URL")
+    SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 if not SUPABASE_URL or not SUPABASE_KEY:
-    st.error("⚠️ Falta configurar las credenciales de Supabase en el archivo .env")
+    st.error("⚠️ Falta configurar las credenciales de Supabase")
     st.stop()
 
 # Conectar a Supabase
@@ -31,7 +39,6 @@ st.set_page_config(
     layout="wide"
 )
 
-# Título principal
 st.title("💰 Sistema de Cajas Diarias")
 st.markdown("---")
 
@@ -45,11 +52,25 @@ def obtener_sucursales():
         st.error(f"Error obteniendo sucursales: {e}")
         return []
 
+# Función para obtener categorías
+@st.cache_data(ttl=3600)
+def obtener_categorias(tipo):
+    try:
+        result = supabase.table("categorias")\
+            .select("*")\
+            .eq("tipo", tipo)\
+            .eq("activa", True)\
+            .execute()
+        return result.data
+    except Exception as e:
+        st.error(f"Error obteniendo categorías: {e}")
+        return []
+
 # Cargar sucursales
 sucursales = obtener_sucursales()
 
 if not sucursales:
-    st.warning("⚠️ No hay sucursales configuradas. Ejecutá el SQL de inicialización en Supabase.")
+    st.warning("⚠️ No hay sucursales configuradas.")
     st.stop()
 
 # ================== SIDEBAR ==================
@@ -79,12 +100,19 @@ with tab1:
         col1, col2 = st.columns(2)
         
         with col1:
-            if tipo == "Venta":
-                categorias = ["Ventas Mostrador", "Ventas Delivery", "Ventas Online", "Otros Ingresos"]
-            else:
-                categorias = ["Sueldos", "Alquileres", "Servicios", "Mercadería", "Impuestos", "Otros Gastos"]
+            # Obtener categorías desde Supabase
+            categorias_data = obtener_categorias(tipo.lower())
             
-            categoria = st.selectbox("Categoría", categorias)
+            if categorias_data:
+                categoria_seleccionada = st.selectbox(
+                    "Categoría",
+                    options=categorias_data,
+                    format_func=lambda x: x['nombre']
+                )
+            else:
+                st.error("No hay categorías disponibles")
+                categoria_seleccionada = None
+            
             concepto = st.text_input("Concepto/Detalle")
         
         with col2:
@@ -100,7 +128,7 @@ with tab1:
         submitted = st.form_submit_button("💾 Guardar", use_container_width=True, type="primary")
         
         if submitted:
-            if not concepto or monto <= 0:
+            if not concepto or monto <= 0 or not categoria_seleccionada:
                 st.error("⚠️ Completá todos los campos correctamente")
             else:
                 try:
@@ -108,7 +136,7 @@ with tab1:
                         "sucursal_id": sucursal_seleccionada['id'],
                         "fecha": str(fecha_mov),
                         "tipo": tipo.lower(),
-                        "categoria": categoria,
+                        "categoria_id": categoria_seleccionada['id'],  # ← Ahora guarda el ID
                         "concepto": concepto,
                         "monto": float(monto),
                         "medio_pago": medio_pago,
@@ -128,8 +156,9 @@ with tab2:
     st.subheader(f"Movimientos del {fecha_mov.strftime('%d/%m/%Y')} - {sucursal_seleccionada['nombre']}")
     
     try:
+        # Obtener movimientos con JOIN a categorías
         movimientos = supabase.table("movimientos_diarios")\
-            .select("*")\
+            .select("*, categorias(nombre)")\
             .eq("fecha", str(fecha_mov))\
             .eq("sucursal_id", sucursal_seleccionada['id'])\
             .order("fecha_carga", desc=True)\
@@ -137,6 +166,9 @@ with tab2:
         
         if movimientos.data:
             df = pd.DataFrame(movimientos.data)
+            
+            # Expandir el campo categorias
+            df['categoria_nombre'] = df['categorias'].apply(lambda x: x['nombre'] if x else 'Sin categoría')
             
             # Métricas principales
             col1, col2, col3, col4 = st.columns(4)
@@ -153,7 +185,7 @@ with tab2:
             st.markdown("---")
             
             # Tabla de movimientos
-            df_display = df[['tipo', 'categoria', 'concepto', 'monto', 'medio_pago', 'usuario']].copy()
+            df_display = df[['tipo', 'categoria_nombre', 'concepto', 'monto', 'medio_pago', 'usuario']].copy()
             df_display['monto'] = df_display['monto'].apply(lambda x: f"${x:,.2f}")
             df_display.columns = ['Tipo', 'Categoría', 'Concepto', 'Monto', 'Medio Pago', 'Usuario']
             
@@ -170,7 +202,7 @@ with tab2:
             
             with col2:
                 st.subheader("Gastos por Categoría")
-                gastos_cat = df[df['tipo']=='gasto'].groupby('categoria')['monto'].sum()
+                gastos_cat = df[df['tipo']=='gasto'].groupby('categoria_nombre')['monto'].sum()
                 if not gastos_cat.empty:
                     st.bar_chart(gastos_cat)
         else:
@@ -199,7 +231,7 @@ with tab3:
         with st.spinner("Generando reporte..."):
             try:
                 query = supabase.table("movimientos_diarios")\
-                    .select("*, sucursales(nombre)")\
+                    .select("*, sucursales(nombre), categorias(nombre)")\
                     .gte("fecha", str(fecha_desde))\
                     .lte("fecha", str(fecha_hasta))
                 
@@ -211,8 +243,9 @@ with tab3:
                 if result.data:
                     df = pd.DataFrame(result.data)
                     
-                    # Expandir el campo sucursales
+                    # Expandir campos
                     df['sucursal_nombre'] = df['sucursales'].apply(lambda x: x['nombre'] if x else 'N/A')
+                    df['categoria_nombre'] = df['categorias'].apply(lambda x: x['nombre'] if x else 'Sin categoría')
                     
                     # Resumen general
                     st.markdown("### 📊 Resumen del Período")
@@ -245,17 +278,25 @@ with tab3:
                     
                     st.markdown("---")
                     
+                    # Resumen por categoría
+                    st.markdown("### 📂 Resumen por Categoría")
+                    
+                    resumen_cat = df.groupby(['tipo', 'categoria_nombre'])['monto'].sum().unstack(fill_value=0)
+                    st.dataframe(resumen_cat.style.format("${:,.2f}"), use_container_width=True)
+                    
+                    st.markdown("---")
+                    
                     # Detalle completo
                     st.markdown("### 📋 Detalle de Movimientos")
                     
-                    df_detalle = df[['fecha', 'sucursal_nombre', 'tipo', 'categoria', 'concepto', 'monto', 'medio_pago']].copy()
+                    df_detalle = df[['fecha', 'sucursal_nombre', 'tipo', 'categoria_nombre', 'concepto', 'monto', 'medio_pago']].copy()
                     df_detalle['monto'] = df_detalle['monto'].apply(lambda x: f"${x:,.2f}")
                     df_detalle.columns = ['Fecha', 'Sucursal', 'Tipo', 'Categoría', 'Concepto', 'Monto', 'Medio Pago']
                     
                     st.dataframe(df_detalle, use_container_width=True, hide_index=True)
                     
                     # Botón para descargar CSV
-                    csv = df[['fecha', 'sucursal_nombre', 'tipo', 'categoria', 'concepto', 'monto', 'medio_pago']].to_csv(index=False)
+                    csv = df[['fecha', 'sucursal_nombre', 'tipo', 'categoria_nombre', 'concepto', 'monto', 'medio_pago']].to_csv(index=False)
                     st.download_button(
                         label="⬇️ Descargar CSV",
                         data=csv,

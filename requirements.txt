@@ -1,5 +1,5 @@
-supabase==2.3.4
-streamlit==1.31.0
-pandas==2.1.4
-openpyxl==3.1.2
-python-dotenv==1.0.0
+   supabase==2.3.4
+   streamlit==1.39.0
+   pandas==2.2.3
+   openpyxl==3.1.5
+   python-dotenv==1.0.1

@@ -152,8 +152,8 @@ with tab1:
             monto = st.number_input("Monto ($)", min_value=0.0, step=0.01, format="%.2f")
             
             # Medio de pago
-            if tipo == "Sueldos":
-                # Para sueldos, buscar el medio "Efectivo"
+            if tipo in ["Sueldos", "Gasto"]:  # ← CAMBIO: Ahora incluye "Gasto"
+                # Para Sueldos y Gastos, buscar el medio "Efectivo"
                 medios_data = obtener_medios_pago("gasto")
                 medio_efectivo = [m for m in medios_data if m['nombre'] == 'Efectivo']
                 
@@ -164,7 +164,7 @@ with tab1:
                     st.error("No se encontró el medio de pago 'Efectivo'")
                     medio_pago_seleccionado = None
             else:
-                # Para Ventas y Gastos, mostrar selector desde BD
+                # Solo para Ventas, mostrar selector desde BD
                 medios_data = obtener_medios_pago(tipo.lower())
                 
                 if medios_data:
@@ -222,7 +222,7 @@ with tab1:
                         }
                         
                         result = supabase.table("movimientos_diarios").insert(data).execute()
-                        st.success(f"✅ {tipo} guardada correctamente: ${monto:,.2f}")
+                        st.success(f"✅ {tipo} guardado correctamente: ${monto:,.2f}")
                         st.rerun()
                         
                     except Exception as e:
@@ -434,3 +434,4 @@ with tab3:
                     
             except Exception as e:
                 st.error(f"❌ Error generando reporte: {str(e)}")
+

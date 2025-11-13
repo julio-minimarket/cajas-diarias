@@ -167,37 +167,56 @@ with tab2:
             df = pd.DataFrame(movimientos.data)
             df['categoria_nombre'] = df['categorias'].apply(lambda x: x['nombre'] if x else 'Sin categoría')
             
-            # CÁLCULO CORRECTO DE MÉTRICAS
-            # Filtrar ventas y gastos por separado
+            # CÁLCULO DE MÉTRICAS
             df_ventas = df[df['tipo'] == 'venta'].copy()
             df_gastos = df[df['tipo'] == 'gasto'].copy()
             
-            # Calcular totales
+            # Totales generales
             ventas_total = df_ventas['monto'].sum() if len(df_ventas) > 0 else 0.0
             gastos_total = df_gastos['monto'].sum() if len(df_gastos) > 0 else 0.0
             neto = ventas_total - gastos_total
             
-            # Métricas principales con validación
-            col1, col2, col3, col4 = st.columns(4)
+            # Ventas en efectivo específicamente
+            ventas_efectivo = df_ventas[df_ventas['medio_pago'] == 'Efectivo']['monto'].sum() if len(df_ventas) > 0 else 0.0
+            
+            # EFECTIVO ENTREGADO = Ventas en Efectivo - Total de Gastos
+            efectivo_entregado = ventas_efectivo - gastos_total
+            
+            # Métricas principales (5 columnas ahora)
+            col1, col2, col3, col4, col5 = st.columns(5)
             
             col1.metric("💰 Ventas", f"${ventas_total:,.2f}")
             col2.metric("💸 Gastos", f"${gastos_total:,.2f}")
             col3.metric("📊 Neto", f"${neto:,.2f}")
-            col4.metric("📝 Movimientos", len(df))
+            col4.metric("💵 Ventas Efectivo", f"${ventas_efectivo:,.2f}")
             
-            # Debug info (comentalo después de verificar)
-            with st.expander("🔍 Ver detalles de cálculo"):
-                col1, col2 = st.columns(2)
+            # Efectivo Entregado con color según si es positivo o negativo
+            delta_color = "normal" if efectivo_entregado >= 0 else "inverse"
+            col5.metric(
+                "🏦 Efectivo Entregado", 
+                f"${efectivo_entregado:,.2f}",
+                delta=None,
+                delta_color=delta_color
+            )
+            
+            # Detalle del cálculo de efectivo
+            with st.expander("💵 Detalle del Efectivo"):
+                st.write("**Cálculo: Ventas en Efectivo - Total de Gastos**")
+                col1, col2, col3 = st.columns(3)
                 with col1:
-                    st.write(f"**Cantidad de ventas:** {len(df_ventas)}")
-                    st.write(f"**Total ventas:** ${ventas_total:,.2f}")
-                    if len(df_ventas) > 0:
-                        st.dataframe(df_ventas[['concepto', 'monto']])
+                    st.metric("Ventas Efectivo", f"${ventas_efectivo:,.2f}")
                 with col2:
-                    st.write(f"**Cantidad de gastos:** {len(df_gastos)}")
-                    st.write(f"**Total gastos:** ${gastos_total:,.2f}")
-                    if len(df_gastos) > 0:
-                        st.dataframe(df_gastos[['concepto', 'monto']])
+                    st.metric("(-) Gastos", f"${gastos_total:,.2f}")
+                with col3:
+                    st.metric("(=) Efectivo Entregado", f"${efectivo_entregado:,.2f}")
+                
+                st.markdown("---")
+                st.write("**Resumen por Medio de Pago:**")
+                if len(df_ventas) > 0:
+                    medios_resumen = df_ventas.groupby('medio_pago')['monto'].sum().reset_index()
+                    medios_resumen.columns = ['Medio de Pago', 'Monto']
+                    medios_resumen['Monto'] = medios_resumen['Monto'].apply(lambda x: f"${x:,.2f}")
+                    st.dataframe(medios_resumen, use_container_width=True, hide_index=True)
             
             st.markdown("---")
             
@@ -333,4 +352,5 @@ with tab3:
                     
             except Exception as e:
                 st.error(f"❌ Error generando reporte: {str(e)}")
+
 

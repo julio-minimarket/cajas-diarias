@@ -112,7 +112,7 @@ with tab1:
                 st.error("No hay categorías disponibles")
                 categoria_seleccionada = None
             
-            concepto = st.text_input("Concepto/Detalle (opcional)")  # ← Agregué "(opcional)" al label
+            concepto = st.text_input("Concepto/Detalle (opcional)")
         
         with col2:
             monto = st.number_input("Monto ($)", min_value=0.0, step=0.01, format="%.2f")
@@ -127,7 +127,6 @@ with tab1:
         submitted = st.form_submit_button("💾 Guardar", use_container_width=True, type="primary")
         
         if submitted:
-            # VALIDACIÓN MODIFICADA: concepto ya no es obligatorio
             if monto <= 0 or not categoria_seleccionada:
                 st.error("⚠️ Completá la categoría y el monto correctamente")
             else:
@@ -137,10 +136,10 @@ with tab1:
                         "fecha": str(fecha_mov),
                         "tipo": tipo.lower(),
                         "categoria_id": categoria_seleccionada['id'],
-                        "concepto": concepto if concepto else None,  # ← Guarda None si está vacío
+                        "concepto": concepto if concepto else None,
                         "monto": float(monto),
                         "medio_pago": medio_pago,
-                        "usuario": usuario['username'],
+                        "usuario": usuario,
                         "fecha_carga": datetime.now().isoformat()
                     }
                     
@@ -182,7 +181,7 @@ with tab2:
             # EFECTIVO ENTREGADO = Ventas en Efectivo - Total de Gastos
             efectivo_entregado = ventas_efectivo - gastos_total
             
-            # Métricas principales (5 columnas ahora)
+            # Métricas principales (5 columnas)
             col1, col2, col3, col4, col5 = st.columns(5)
             
             col1.metric("💰 Ventas", f"${ventas_total:,.2f}")
@@ -190,14 +189,8 @@ with tab2:
             col3.metric("📊 Neto", f"${neto:,.2f}")
             col4.metric("💵 Ventas Efectivo", f"${ventas_efectivo:,.2f}")
             
-            # Efectivo Entregado con color según si es positivo o negativo
             delta_color = "normal" if efectivo_entregado >= 0 else "inverse"
-            col5.metric(
-                "🏦 Efectivo Entregado", 
-                f"${efectivo_entregado:,.2f}",
-                delta=None,
-                delta_color=delta_color
-            )
+            col5.metric("🏦 Efectivo Entregado", f"${efectivo_entregado:,.2f}")
             
             # Detalle del cálculo de efectivo
             with st.expander("💵 Detalle del Efectivo"):
@@ -222,6 +215,7 @@ with tab2:
             
             # Tabla de movimientos
             df_display = df[['tipo', 'categoria_nombre', 'concepto', 'monto', 'medio_pago', 'usuario']].copy()
+            df_display['concepto'] = df_display['concepto'].fillna('Sin detalle')
             df_display['monto'] = df_display['monto'].apply(lambda x: f"${x:,.2f}")
             df_display.columns = ['Tipo', 'Categoría', 'Concepto', 'Monto', 'Medio Pago', 'Usuario']
             
@@ -252,7 +246,6 @@ with tab2:
             
     except Exception as e:
         st.error(f"❌ Error al cargar movimientos: {str(e)}")
-        st.write("Detalles del error:", e)
 
 # ==================== TAB 3: REPORTES ====================
 with tab3:
@@ -286,7 +279,6 @@ with tab3:
                 if result.data:
                     df = pd.DataFrame(result.data)
                     
-                    # Expandir campos
                     df['sucursal_nombre'] = df['sucursales'].apply(lambda x: x['nombre'] if x else 'N/A')
                     df['categoria_nombre'] = df['categorias'].apply(lambda x: x['nombre'] if x else 'Sin categoría')
                     
@@ -333,6 +325,7 @@ with tab3:
                     st.markdown("### 📋 Detalle de Movimientos")
                     
                     df_detalle = df[['fecha', 'sucursal_nombre', 'tipo', 'categoria_nombre', 'concepto', 'monto', 'medio_pago']].copy()
+                    df_detalle['concepto'] = df_detalle['concepto'].fillna('Sin detalle')
                     df_detalle['monto'] = df_detalle['monto'].apply(lambda x: f"${x:,.2f}")
                     df_detalle.columns = ['Fecha', 'Sucursal', 'Tipo', 'Categoría', 'Concepto', 'Monto', 'Medio Pago']
                     
@@ -352,6 +345,3 @@ with tab3:
                     
             except Exception as e:
                 st.error(f"❌ Error generando reporte: {str(e)}")
-
-
-

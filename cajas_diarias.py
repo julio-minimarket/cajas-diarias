@@ -100,7 +100,6 @@ with tab1:
         col1, col2 = st.columns(2)
         
         with col1:
-            # Obtener categorías desde Supabase
             categorias_data = obtener_categorias(tipo.lower())
             
             if categorias_data:
@@ -113,7 +112,7 @@ with tab1:
                 st.error("No hay categorías disponibles")
                 categoria_seleccionada = None
             
-            concepto = st.text_input("Concepto/Detalle")
+            concepto = st.text_input("Concepto/Detalle (opcional)")  # ← Agregué "(opcional)" al label
         
         with col2:
             monto = st.number_input("Monto ($)", min_value=0.0, step=0.01, format="%.2f")
@@ -128,19 +127,20 @@ with tab1:
         submitted = st.form_submit_button("💾 Guardar", use_container_width=True, type="primary")
         
         if submitted:
-            if not concepto or monto <= 0 or not categoria_seleccionada:
-                st.error("⚠️ Completá todos los campos correctamente")
+            # VALIDACIÓN MODIFICADA: concepto ya no es obligatorio
+            if monto <= 0 or not categoria_seleccionada:
+                st.error("⚠️ Completá la categoría y el monto correctamente")
             else:
                 try:
                     data = {
                         "sucursal_id": sucursal_seleccionada['id'],
                         "fecha": str(fecha_mov),
                         "tipo": tipo.lower(),
-                        "categoria_id": categoria_seleccionada['id'],  # ← Ahora guarda el ID
-                        "concepto": concepto,
+                        "categoria_id": categoria_seleccionada['id'],
+                        "concepto": concepto if concepto else None,  # ← Guarda None si está vacío
                         "monto": float(monto),
                         "medio_pago": medio_pago,
-                        "usuario": usuario,
+                        "usuario": usuario['username'],
                         "fecha_carga": datetime.now().isoformat()
                     }
                     
@@ -352,5 +352,6 @@ with tab3:
                     
             except Exception as e:
                 st.error(f"❌ Error generando reporte: {str(e)}")
+
 
 

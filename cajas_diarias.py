@@ -156,7 +156,6 @@ with tab2:
     st.subheader(f"Movimientos del {fecha_mov.strftime('%d/%m/%Y')} - {sucursal_seleccionada['nombre']}")
     
     try:
-        # Obtener movimientos con JOIN a categorías
         movimientos = supabase.table("movimientos_diarios")\
             .select("*, categorias(nombre)")\
             .eq("fecha", str(fecha_mov))\
@@ -166,21 +165,39 @@ with tab2:
         
         if movimientos.data:
             df = pd.DataFrame(movimientos.data)
-            
-            # Expandir el campo categorias
             df['categoria_nombre'] = df['categorias'].apply(lambda x: x['nombre'] if x else 'Sin categoría')
             
-            # Métricas principales
-            col1, col2, col3, col4 = st.columns(4)
+            # CÁLCULO CORRECTO DE MÉTRICAS
+            # Filtrar ventas y gastos por separado
+            df_ventas = df[df['tipo'] == 'venta'].copy()
+            df_gastos = df[df['tipo'] == 'gasto'].copy()
             
-            ventas_total = df[df['tipo']=='venta']['monto'].sum()
-            gastos_total = df[df['tipo']=='gasto']['monto'].sum()
+            # Calcular totales
+            ventas_total = df_ventas['monto'].sum() if len(df_ventas) > 0 else 0.0
+            gastos_total = df_gastos['monto'].sum() if len(df_gastos) > 0 else 0.0
             neto = ventas_total - gastos_total
+            
+            # Métricas principales con validación
+            col1, col2, col3, col4 = st.columns(4)
             
             col1.metric("💰 Ventas", f"${ventas_total:,.2f}")
             col2.metric("💸 Gastos", f"${gastos_total:,.2f}")
             col3.metric("📊 Neto", f"${neto:,.2f}")
             col4.metric("📝 Movimientos", len(df))
+            
+            # Debug info (comentalo después de verificar)
+            with st.expander("🔍 Ver detalles de cálculo"):
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.write(f"**Cantidad de ventas:** {len(df_ventas)}")
+                    st.write(f"**Total ventas:** ${ventas_total:,.2f}")
+                    if len(df_ventas) > 0:
+                        st.dataframe(df_ventas[['concepto', 'monto']])
+                with col2:
+                    st.write(f"**Cantidad de gastos:** {len(df_gastos)}")
+                    st.write(f"**Total gastos:** ${gastos_total:,.2f}")
+                    if len(df_gastos) > 0:
+                        st.dataframe(df_gastos[['concepto', 'monto']])
             
             st.markdown("---")
             
@@ -196,20 +213,27 @@ with tab2:
             
             with col1:
                 st.subheader("Ventas por Medio de Pago")
-                ventas_medio = df[df['tipo']=='venta'].groupby('medio_pago')['monto'].sum()
-                if not ventas_medio.empty:
-                    st.bar_chart(ventas_medio)
+                if len(df_ventas) > 0:
+                    ventas_medio = df_ventas.groupby('medio_pago')['monto'].sum()
+                    if not ventas_medio.empty:
+                        st.bar_chart(ventas_medio)
+                else:
+                    st.info("No hay ventas para mostrar")
             
             with col2:
                 st.subheader("Gastos por Categoría")
-                gastos_cat = df[df['tipo']=='gasto'].groupby('categoria_nombre')['monto'].sum()
-                if not gastos_cat.empty:
-                    st.bar_chart(gastos_cat)
+                if len(df_gastos) > 0:
+                    gastos_cat = df_gastos.groupby('categoria_nombre')['monto'].sum()
+                    if not gastos_cat.empty:
+                        st.bar_chart(gastos_cat)
+                else:
+                    st.info("No hay gastos para mostrar")
         else:
             st.info("📭 No hay movimientos cargados para esta fecha")
             
     except Exception as e:
         st.error(f"❌ Error al cargar movimientos: {str(e)}")
+        st.write("Detalles del error:", e)
 
 # ==================== TAB 3: REPORTES ====================
 with tab3:
@@ -309,3 +333,4 @@ with tab3:
                     
             except Exception as e:
                 st.error(f"❌ Error generando reporte: {str(e)}")
+

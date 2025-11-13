@@ -94,61 +94,114 @@ tab1, tab2, tab3 = st.tabs(["📝 Carga", "📊 Resumen del Día", "📈 Reporte
 with tab1:
     st.subheader(f"Cargar movimiento - {sucursal_seleccionada['nombre']}")
     
-    tipo = st.radio("Tipo de movimiento", ["Venta", "Gasto"], horizontal=True)
+    tipo = st.radio("Tipo de movimiento", ["Venta", "Gasto", "Sueldos"], horizontal=True)
     
     with st.form("form_movimiento", clear_on_submit=True):
         col1, col2 = st.columns(2)
         
         with col1:
-            categorias_data = obtener_categorias(tipo.lower())
-            
-            if categorias_data:
-                categoria_seleccionada = st.selectbox(
-                    "Categoría",
-                    options=categorias_data,
-                    format_func=lambda x: x['nombre']
-                )
+            # Si es "Sueldos", buscar automáticamente la categoría "Sueldos"
+            if tipo == "Sueldos":
+                # Buscar la categoría "Sueldos" específicamente
+                categorias_data = obtener_categorias("gasto")
+                categoria_sueldos = [cat for cat in categorias_data if cat['nombre'] == 'Sueldos']
+                
+                if categoria_sueldos:
+                    categoria_seleccionada = categoria_sueldos[0]
+                    st.info(f"📂 Categoría: **{categoria_seleccionada['nombre']}**")
+                else:
+                    st.error("No se encontró la categoría 'Sueldos'")
+                    categoria_seleccionada = None
+                
+                # Para sueldos, el concepto es el nombre del empleado (OBLIGATORIO)
+                concepto = st.text_input("👤 Nombre del Empleado *")
+                
             else:
-                st.error("No hay categorías disponibles")
-                categoria_seleccionada = None
-            
-            concepto = st.text_input("Concepto/Detalle (opcional)")
+                # Para Ventas y Gastos normales
+                categorias_data = obtener_categorias(tipo.lower())
+                
+                if categorias_data:
+                    categoria_seleccionada = st.selectbox(
+                        "Categoría",
+                        options=categorias_data,
+                        format_func=lambda x: x['nombre']
+                    )
+                else:
+                    st.error("No hay categorías disponibles")
+                    categoria_seleccionada = None
+                
+                concepto = st.text_input("Concepto/Detalle (opcional)")
         
         with col2:
             monto = st.number_input("Monto ($)", min_value=0.0, step=0.01, format="%.2f")
             
-            if tipo == "Venta":
-                medios = ["Efectivo", "Débito", "Crédito", "Transferencia", "Mercado Pago", "QR"]
+            # Solo mostrar medio de pago si NO es Sueldos
+            if tipo == "Sueldos":
+                # Para sueldos, el medio de pago es siempre Efectivo (no se muestra)
+                medio_pago = "Efectivo"
+                st.info("💵 Medio de pago: **Efectivo** (automático)")
             else:
-                medios = ["Efectivo", "Transferencia", "Cheque", "Tarjeta"]
-            
-            medio_pago = st.selectbox("Medio de pago", medios)
+                # Para Ventas y Gastos normales
+                if tipo == "Venta":
+                    medios = ["Efectivo", "Débito", "Crédito", "Transferencia", "Mercado Pago", "QR"]
+                else:
+                    medios = ["Efectivo", "Transferencia", "Cheque", "Tarjeta"]
+                
+                medio_pago = st.selectbox("Medio de pago", medios)
         
         submitted = st.form_submit_button("💾 Guardar", use_container_width=True, type="primary")
         
         if submitted:
-            if monto <= 0 or not categoria_seleccionada:
-                st.error("⚠️ Completá la categoría y el monto correctamente")
+            # Validación según tipo
+            if tipo == "Sueldos":
+                # Para sueldos, el concepto (nombre empleado) es OBLIGATORIO
+                if not concepto or monto <= 0 or not categoria_seleccionada:
+                    st.error("⚠️ Completá el nombre del empleado y el monto")
+                else:
+                    # Guardar como gasto con categoría Sueldos
+                    try:
+                        data = {
+                            "sucursal_id": sucursal_seleccionada['id'],
+                            "fecha": str(fecha_mov),
+                            "tipo": "gasto",  # Se guarda como gasto
+                            "categoria_id": categoria_seleccionada['id'],
+                            "concepto": concepto,
+                            "monto": float(monto),
+                            "medio_pago": "Efectivo",  # Siempre efectivo
+                            "usuario": usuario,
+                            "fecha_carga": datetime.now().isoformat()
+                        }
+                        
+                        result = supabase.table("movimientos_diarios").insert(data).execute()
+                        st.success(f"✅ Sueldo de {concepto} guardado correctamente: ${monto:,.2f}")
+                        st.rerun()
+                        
+                    except Exception as e:
+                        st.error(f"❌ Error al guardar: {str(e)}")
             else:
-                try:
-                    data = {
-                        "sucursal_id": sucursal_seleccionada['id'],
-                        "fecha": str(fecha_mov),
-                        "tipo": tipo.lower(),
-                        "categoria_id": categoria_seleccionada['id'],
-                        "concepto": concepto if concepto else None,
-                        "monto": float(monto),
-                        "medio_pago": medio_pago,
-                        "usuario": usuario,
-                        "fecha_carga": datetime.now().isoformat()
-                    }
-                    
-                    result = supabase.table("movimientos_diarios").insert(data).execute()
-                    st.success(f"✅ {tipo} guardada correctamente: ${monto:,.2f}")
-                    st.rerun()
-                    
-                except Exception as e:
-                    st.error(f"❌ Error al guardar: {str(e)}")
+                # Para Ventas y Gastos normales
+                if monto <= 0 or not categoria_seleccionada:
+                    st.error("⚠️ Completá la categoría y el monto correctamente")
+                else:
+                    try:
+                        data = {
+                            "sucursal_id": sucursal_seleccionada['id'],
+                            "fecha": str(fecha_mov),
+                            "tipo": tipo.lower(),
+                            "categoria_id": categoria_seleccionada['id'],
+                            "concepto": concepto if concepto else None,
+                            "monto": float(monto),
+                            "medio_pago": medio_pago,
+                            "usuario": usuario,
+                            "fecha_carga": datetime.now().isoformat()
+                        }
+                        
+                        result = supabase.table("movimientos_diarios").insert(data).execute()
+                        st.success(f"✅ {tipo} guardada correctamente: ${monto:,.2f}")
+                        st.rerun()
+                        
+                    except Exception as e:
+                        st.error(f"❌ Error al guardar: {str(e)}")
 
 # ==================== TAB 2: RESUMEN ====================
 with tab2:
@@ -345,3 +398,4 @@ with tab3:
                     
             except Exception as e:
                 st.error(f"❌ Error generando reporte: {str(e)}")
+

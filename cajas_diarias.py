@@ -133,24 +133,24 @@ with tab1:
                 
                 concepto = st.text_input("👤 Nombre del Empleado *")
                 
-           else:
-    categorias_data = obtener_categorias(tipo.lower())
-    
-    # FILTRAR "Sueldos" si es tipo "Gasto"
-    if tipo == "Gasto":
-        categorias_data = [cat for cat in categorias_data if cat['nombre'] != 'Sueldos']
-    
-    if categorias_data:
-        categoria_seleccionada = st.selectbox(
-            "Categoría",
-            options=categorias_data,
-            format_func=lambda x: x['nombre']
-        )
-    else:
-        st.error("No hay categorías disponibles")
-        categoria_seleccionada = None
-    
-    concepto = st.text_input("Concepto/Detalle (opcional)")
+            else:
+                categorias_data = obtener_categorias(tipo.lower())
+                
+                # FILTRAR "Sueldos" si es tipo "Gasto"
+                if tipo == "Gasto":
+                    categorias_data = [cat for cat in categorias_data if cat['nombre'] != 'Sueldos']
+                
+                if categorias_data:
+                    categoria_seleccionada = st.selectbox(
+                        "Categoría",
+                        options=categorias_data,
+                        format_func=lambda x: x['nombre']
+                    )
+                else:
+                    st.error("No hay categorías disponibles")
+                    categoria_seleccionada = None
+                
+                concepto = st.text_input("Concepto/Detalle (opcional)")
         
         with col2:
             monto = st.number_input("Monto ($)", min_value=0.0, step=0.01, format="%.2f")
@@ -187,30 +187,36 @@ with tab1:
             # Validación según tipo
             if tipo == "Sueldos":
                 if not concepto or monto <= 0 or not categoria_seleccionada or not medio_pago_seleccionado:
-                    st.error("⚠️ Completá el nombre del empleado y el monto")
+                    st.error("⚠️ Completa todos los campos. El nombre del empleado y el monto son obligatorios.")
                 else:
+                    # Guardar sueldo
                     try:
                         data = {
                             "sucursal_id": sucursal_seleccionada['id'],
                             "fecha": str(fecha_mov),
-                            "tipo": "gasto",
+                            "tipo": "gasto",  # Sueldos se guardan como gastos
                             "categoria_id": categoria_seleccionada['id'],
                             "concepto": concepto,
-                            "monto": float(monto),
+                            "monto": monto,
                             "medio_pago_id": medio_pago_seleccionado['id'],
-                            "usuario": usuario,
-                            "fecha_carga": datetime.now().isoformat()
+                            "usuario": usuario
                         }
                         
                         result = supabase.table("movimientos_diarios").insert(data).execute()
-                        st.success(f"✅ Sueldo de {concepto} guardado correctamente: ${monto:,.2f}")
-                        st.rerun()
                         
+                        if result.data:
+                            st.success(f"✅ Sueldo de {concepto} guardado exitosamente: ${monto:,.2f}")
+                            st.balloons()
+                            st.cache_data.clear()
+                        else:
+                            st.error("Error al guardar el movimiento")
+                            
                     except Exception as e:
-                        st.error(f"❌ Error al guardar: {str(e)}")
+                        st.error(f"❌ Error: {str(e)}")
             else:
+                # Validación para Venta y Gasto
                 if monto <= 0 or not categoria_seleccionada or not medio_pago_seleccionado:
-                    st.error("⚠️ Completá todos los campos obligatorios")
+                    st.error("⚠️ Completa todos los campos obligatorios")
                 else:
                     try:
                         data = {
@@ -219,41 +225,46 @@ with tab1:
                             "tipo": tipo.lower(),
                             "categoria_id": categoria_seleccionada['id'],
                             "concepto": concepto if concepto else None,
-                            "monto": float(monto),
+                            "monto": monto,
                             "medio_pago_id": medio_pago_seleccionado['id'],
-                            "usuario": usuario,
-                            "fecha_carga": datetime.now().isoformat()
+                            "usuario": usuario
                         }
                         
                         result = supabase.table("movimientos_diarios").insert(data).execute()
-                        st.success(f"✅ {tipo} guardado correctamente: ${monto:,.2f}")
-                        st.rerun()
                         
+                        if result.data:
+                            st.success(f"✅ {tipo} guardado exitosamente: ${monto:,.2f}")
+                            st.balloons()
+                            st.cache_data.clear()
+                        else:
+                            st.error("Error al guardar el movimiento")
+                            
                     except Exception as e:
-                        st.error(f"❌ Error al guardar: {str(e)}")
+                        st.error(f"❌ Error: {str(e)}")
 
 # ==================== TAB 2: RESUMEN ====================
 with tab2:
-    st.subheader(f"Movimientos del {fecha_mov.strftime('%d/%m/%Y')} - {sucursal_seleccionada['nombre']}")
+    st.subheader(f"📊 Resumen del {fecha_mov.strftime('%d/%m/%Y')} - {sucursal_seleccionada['nombre']}")
     
     try:
-        movimientos = supabase.table("movimientos_diarios")\
+        # Obtener movimientos del día
+        result = supabase.table("movimientos_diarios")\
             .select("*, categorias(nombre), medios_pago(nombre)")\
-            .eq("fecha", str(fecha_mov))\
             .eq("sucursal_id", sucursal_seleccionada['id'])\
-            .order("fecha_carga", desc=True)\
+            .eq("fecha", str(fecha_mov))\
             .execute()
         
-        if movimientos.data:
-            df = pd.DataFrame(movimientos.data)
+        if result.data:
+            df = pd.DataFrame(result.data)
+            
             df['categoria_nombre'] = df['categorias'].apply(lambda x: x['nombre'] if x else 'Sin categoría')
             df['medio_pago_nombre'] = df['medios_pago'].apply(lambda x: x['nombre'] if x else 'Sin medio')
             
-            # CÁLCULO DE MÉTRICAS
-            df_ventas = df[df['tipo'] == 'venta'].copy()
-            df_gastos = df[df['tipo'] == 'gasto'].copy()
+            # Separar ventas y gastos
+            df_ventas = df[df['tipo'] == 'venta']
+            df_gastos = df[df['tipo'] == 'gasto']
             
-            # Totales generales
+            # Totales
             ventas_total = df_ventas['monto'].sum() if len(df_ventas) > 0 else 0.0
             gastos_total = df_gastos['monto'].sum() if len(df_gastos) > 0 else 0.0
             neto = ventas_total - gastos_total
@@ -438,5 +449,3 @@ with tab3:
                     
             except Exception as e:
                 st.error(f"❌ Error generando reporte: {str(e)}")
-
-

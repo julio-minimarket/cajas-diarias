@@ -206,7 +206,6 @@ with tab1:
                         
                         if result.data:
                             st.success(f"✅ Sueldo de {concepto} guardado exitosamente: ${monto:,.2f}")
-                            st.balloons()
                             st.cache_data.clear()
                         else:
                             st.error("Error al guardar el movimiento")
@@ -234,7 +233,6 @@ with tab1:
                         
                         if result.data:
                             st.success(f"✅ {tipo} guardado exitosamente: ${monto:,.2f}")
-                            st.balloons()
                             st.cache_data.clear()
                         else:
                             st.error("Error al guardar el movimiento")
@@ -449,3 +447,4 @@ with tab3:
                     
             except Exception as e:
                 st.error(f"❌ Error generando reporte: {str(e)}")
+

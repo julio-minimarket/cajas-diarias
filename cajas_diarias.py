@@ -133,20 +133,24 @@ with tab1:
                 
                 concepto = st.text_input("👤 Nombre del Empleado *")
                 
-            else:
-                categorias_data = obtener_categorias(tipo.lower())
-                
-                if categorias_data:
-                    categoria_seleccionada = st.selectbox(
-                        "Categoría",
-                        options=categorias_data,
-                        format_func=lambda x: x['nombre']
-                    )
-                else:
-                    st.error("No hay categorías disponibles")
-                    categoria_seleccionada = None
-                
-                concepto = st.text_input("Concepto/Detalle (opcional)")
+           else:
+    categorias_data = obtener_categorias(tipo.lower())
+    
+    # FILTRAR "Sueldos" si es tipo "Gasto"
+    if tipo == "Gasto":
+        categorias_data = [cat for cat in categorias_data if cat['nombre'] != 'Sueldos']
+    
+    if categorias_data:
+        categoria_seleccionada = st.selectbox(
+            "Categoría",
+            options=categorias_data,
+            format_func=lambda x: x['nombre']
+        )
+    else:
+        st.error("No hay categorías disponibles")
+        categoria_seleccionada = None
+    
+    concepto = st.text_input("Concepto/Detalle (opcional)")
         
         with col2:
             monto = st.number_input("Monto ($)", min_value=0.0, step=0.01, format="%.2f")
@@ -434,4 +438,5 @@ with tab3:
                     
             except Exception as e:
                 st.error(f"❌ Error generando reporte: {str(e)}")
+
 

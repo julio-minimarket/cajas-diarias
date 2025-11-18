@@ -132,12 +132,13 @@ if st.session_state.get('mostrar_cambio_pwd', False):
 # ================== TABS PRINCIPALES ==================
 # Mostrar diferentes tabs según el rol del usuario
 if auth.is_admin():
-    # Admin ve todas las tabs
-    tab1, tab2, tab3 = st.tabs(["📝 Carga", "📊 Resumen del Día", "📈 Reportes"])
+    # Admin ve todas las tabs incluyendo CRM
+    tab1, tab2, tab3, tab4 = st.tabs(["📝 Carga", "📊 Resumen del Día", "📈 Reportes", "💼 CRM"])
 else:
     # Encargados solo ven Carga y Resumen
     tab1, tab2 = st.tabs(["📝 Carga", "📊 Resumen del Día"])
     tab3 = None  # No hay tab de reportes para encargados
+    tab4 = None  # No hay tab de CRM para encargados
 
 # ==================== TAB 1: CARGA ====================
 with tab1:
@@ -492,3 +493,288 @@ if tab3 is not None:
                         
                 except Exception as e:
                     st.error(f"❌ Error generando reporte: {str(e)}")
+
+# ==================== TAB 4: CRM ====================
+# Solo mostrar CRM si el usuario es admin
+if tab4 is not None:
+    with tab4:
+        st.subheader("💼 Datos de CRM por Sucursal")
+        
+        st.info("📊 Esta sección permite cargar los datos de ventas y tickets desde los sistemas CRM de cada sucursal para comparación y control.")
+        
+        # ==================== FORMULARIO DE CARGA ====================
+        st.markdown("### 📝 Cargar Datos del CRM")
+        
+        with st.form("form_crm", clear_on_submit=True):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                # Selector de sucursal
+                sucursal_crm = st.selectbox(
+                    "🏪 Sucursal",
+                    options=sucursales,
+                    format_func=lambda x: x['nombre'],
+                    key="sucursal_crm"
+                )
+                
+                # Obtener sistema CRM de la sucursal
+                try:
+                    crm_info = supabase.table("sucursales_crm")\
+                        .select("sistema_crm")\
+                        .eq("sucursal_id", sucursal_crm['id'])\
+                        .single()\
+                        .execute()
+                    
+                    if crm_info.data:
+                        sistema_crm = crm_info.data['sistema_crm']
+                        st.info(f"💻 Sistema CRM: **{sistema_crm}**")
+                    else:
+                        sistema_crm = "No asignado"
+                        st.warning("⚠️ Esta sucursal no tiene sistema CRM asignado")
+                except:
+                    sistema_crm = "Error"
+                    st.error("❌ Error obteniendo sistema CRM")
+                
+                # Fecha
+                fecha_crm = st.date_input(
+                    "📅 Fecha",
+                    value=date.today(),
+                    key="fecha_crm"
+                )
+            
+            with col2:
+                # Total de ventas del CRM
+                total_ventas_crm = st.number_input(
+                    "💰 Total Ventas CRM ($)",
+                    min_value=0.0,
+                    step=0.01,
+                    format="%.2f",
+                    help="Total de ventas según el sistema CRM",
+                    key="total_ventas_crm"
+                )
+                
+                # Cantidad de tickets
+                cantidad_tickets = st.number_input(
+                    "🎫 Cantidad de Tickets",
+                    min_value=0,
+                    step=1,
+                    help="Número total de tickets/facturas emitidas",
+                    key="cantidad_tickets"
+                )
+            
+            # Botón de guardar
+            col_btn1, col_btn2 = st.columns([3, 1])
+            with col_btn2:
+                submitted_crm = st.form_submit_button("💾 Guardar", use_container_width=True, type="primary")
+            
+            if submitted_crm:
+                if total_ventas_crm <= 0 or cantidad_tickets <= 0:
+                    st.error("⚠️ Completa todos los campos con valores válidos")
+                else:
+                    try:
+                        # Verificar si ya existe un registro para esta fecha y sucursal
+                        existing = supabase.table("crm_datos_diarios")\
+                            .select("id")\
+                            .eq("sucursal_id", sucursal_crm['id'])\
+                            .eq("fecha", str(fecha_crm))\
+                            .execute()
+                        
+                        if existing.data:
+                            # Actualizar registro existente
+                            result = supabase.table("crm_datos_diarios")\
+                                .update({
+                                    "total_ventas_crm": total_ventas_crm,
+                                    "cantidad_tickets": cantidad_tickets,
+                                    "usuario": st.session_state.user['nombre'],
+                                    "updated_at": datetime.now().isoformat()
+                                })\
+                                .eq("sucursal_id", sucursal_crm['id'])\
+                                .eq("fecha", str(fecha_crm))\
+                                .execute()
+                            
+                            st.success(f"✅ Datos de CRM actualizados: ${total_ventas_crm:,.2f} - {cantidad_tickets} tickets")
+                        else:
+                            # Insertar nuevo registro
+                            data_crm = {
+                                "sucursal_id": sucursal_crm['id'],
+                                "fecha": str(fecha_crm),
+                                "total_ventas_crm": total_ventas_crm,
+                                "cantidad_tickets": cantidad_tickets,
+                                "usuario": st.session_state.user['nombre']
+                            }
+                            
+                            result = supabase.table("crm_datos_diarios").insert(data_crm).execute()
+                            
+                            if result.data:
+                                st.success(f"✅ Datos de CRM guardados: ${total_ventas_crm:,.2f} - {cantidad_tickets} tickets")
+                            else:
+                                st.error("❌ Error al guardar los datos")
+                        
+                        st.cache_data.clear()
+                        
+                    except Exception as e:
+                        st.error(f"❌ Error: {str(e)}")
+        
+        st.markdown("---")
+        
+        # ==================== COMPARACIÓN Y VISUALIZACIÓN ====================
+        st.markdown("### 📊 Comparación: Sistema de Cajas vs CRM")
+        
+        col_comp1, col_comp2, col_comp3 = st.columns(3)
+        
+        with col_comp1:
+            fecha_comparacion = st.date_input(
+                "Fecha a comparar",
+                value=date.today(),
+                key="fecha_comparacion"
+            )
+        
+        with col_comp2:
+            sucursal_comparacion = st.selectbox(
+                "Sucursal",
+                options=sucursales,
+                format_func=lambda x: x['nombre'],
+                key="sucursal_comparacion"
+            )
+        
+        with col_comp3:
+            st.write("")
+            if st.button("🔍 Comparar", type="primary", use_container_width=True):
+                try:
+                    # Obtener datos del sistema de cajas
+                    movimientos = supabase.table("movimientos_diarios")\
+                        .select("*")\
+                        .eq("sucursal_id", sucursal_comparacion['id'])\
+                        .eq("fecha", str(fecha_comparacion))\
+                        .eq("tipo", "venta")\
+                        .execute()
+                    
+                    total_cajas = sum([m['monto'] for m in movimientos.data]) if movimientos.data else 0.0
+                    
+                    # Obtener datos del CRM
+                    crm_data = supabase.table("crm_datos_diarios")\
+                        .select("*")\
+                        .eq("sucursal_id", sucursal_comparacion['id'])\
+                        .eq("fecha", str(fecha_comparacion))\
+                        .execute()
+                    
+                    if crm_data.data:
+                        total_crm = crm_data.data[0]['total_ventas_crm']
+                        tickets = crm_data.data[0]['cantidad_tickets']
+                        
+                        st.markdown("#### 📈 Resultados de la Comparación")
+                        
+                        col_res1, col_res2, col_res3 = st.columns(3)
+                        
+                        with col_res1:
+                            st.metric(
+                                "💼 Sistema de Cajas",
+                                f"${total_cajas:,.2f}",
+                                help="Total de ventas registradas en el sistema de cajas"
+                            )
+                        
+                        with col_res2:
+                            st.metric(
+                                "💻 Sistema CRM",
+                                f"${total_crm:,.2f}",
+                                help="Total de ventas según el CRM"
+                            )
+                        
+                        with col_res3:
+                            diferencia = total_cajas - total_crm
+                            porcentaje = (diferencia / total_crm * 100) if total_crm > 0 else 0
+                            
+                            st.metric(
+                                "📊 Diferencia",
+                                f"${abs(diferencia):,.2f}",
+                                f"{porcentaje:.2f}%",
+                                delta_color="inverse" if diferencia < 0 else "normal"
+                            )
+                        
+                        # Análisis
+                        st.markdown("---")
+                        
+                        if abs(diferencia) < 100:
+                            st.success("✅ Los valores coinciden correctamente (diferencia < $100)")
+                        elif abs(diferencia) < 500:
+                            st.warning(f"⚠️ Diferencia moderada de ${abs(diferencia):,.2f} - Revisar")
+                        else:
+                            st.error(f"❌ Diferencia significativa de ${abs(diferencia):,.2f} - Requiere auditoría")
+                        
+                        # Información adicional
+                        col_info1, col_info2 = st.columns(2)
+                        with col_info1:
+                            st.info(f"🎫 **Tickets emitidos:** {tickets}")
+                            if total_cajas > 0 and tickets > 0:
+                                ticket_promedio = total_cajas / tickets
+                                st.info(f"💵 **Ticket promedio:** ${ticket_promedio:,.2f}")
+                        
+                        with col_info2:
+                            # Obtener sistema CRM
+                            crm_sistema = supabase.table("sucursales_crm")\
+                                .select("sistema_crm")\
+                                .eq("sucursal_id", sucursal_comparacion['id'])\
+                                .single()\
+                                .execute()
+                            
+                            if crm_sistema.data:
+                                st.info(f"💻 **Sistema CRM:** {crm_sistema.data['sistema_crm']}")
+                    else:
+                        st.warning(f"⚠️ No hay datos de CRM cargados para {sucursal_comparacion['nombre']} en la fecha {fecha_comparacion.strftime('%d/%m/%Y')}")
+                        st.info(f"💼 Sistema de Cajas registró: ${total_cajas:,.2f}")
+                
+                except Exception as e:
+                    st.error(f"❌ Error en la comparación: {str(e)}")
+        
+        st.markdown("---")
+        
+        # ==================== HISTORIAL ====================
+        st.markdown("### 📋 Historial de Datos CRM")
+        
+        col_hist1, col_hist2 = st.columns(2)
+        
+        with col_hist1:
+            fecha_desde_crm = st.date_input("Desde", value=date.today().replace(day=1), key="fecha_desde_crm")
+        
+        with col_hist2:
+            fecha_hasta_crm = st.date_input("Hasta", value=date.today(), key="fecha_hasta_crm")
+        
+        if st.button("📊 Ver Historial", type="secondary"):
+            try:
+                historial = supabase.table("crm_datos_diarios")\
+                    .select("*, sucursales(nombre)")\
+                    .gte("fecha", str(fecha_desde_crm))\
+                    .lte("fecha", str(fecha_hasta_crm))\
+                    .order("fecha", desc=True)\
+                    .execute()
+                
+                if historial.data:
+                    df_hist = pd.DataFrame(historial.data)
+                    df_hist['sucursal_nombre'] = df_hist['sucursales'].apply(lambda x: x['nombre'] if x else 'N/A')
+                    
+                    df_display = df_hist[['fecha', 'sucursal_nombre', 'total_ventas_crm', 'cantidad_tickets', 'usuario']].copy()
+                    df_display['total_ventas_crm'] = df_display['total_ventas_crm'].apply(lambda x: f"${x:,.2f}")
+                    df_display.columns = ['Fecha', 'Sucursal', 'Total Ventas CRM', 'Tickets', 'Usuario']
+                    
+                    st.dataframe(df_display, use_container_width=True, hide_index=True)
+                    
+                    # Estadísticas del período
+                    st.markdown("#### 📈 Estadísticas del Período")
+                    col_stats1, col_stats2, col_stats3 = st.columns(3)
+                    
+                    with col_stats1:
+                        total_ventas_periodo = df_hist['total_ventas_crm'].sum()
+                        st.metric("💰 Total Ventas CRM", f"${total_ventas_periodo:,.2f}")
+                    
+                    with col_stats2:
+                        total_tickets_periodo = df_hist['cantidad_tickets'].sum()
+                        st.metric("🎫 Total Tickets", f"{total_tickets_periodo:,}")
+                    
+                    with col_stats3:
+                        ticket_promedio_periodo = total_ventas_periodo / total_tickets_periodo if total_tickets_periodo > 0 else 0
+                        st.metric("💵 Ticket Promedio", f"${ticket_promedio_periodo:,.2f}")
+                else:
+                    st.info("📭 No hay datos de CRM para el período seleccionado")
+            
+            except Exception as e:
+                st.error(f"❌ Error al cargar historial: {str(e)}")

@@ -130,7 +130,14 @@ if st.session_state.get('mostrar_cambio_pwd', False):
     st.stop()
 
 # ================== TABS PRINCIPALES ==================
-tab1, tab2, tab3 = st.tabs(["📝 Carga", "📊 Resumen del Día", "📈 Reportes"])
+# Mostrar diferentes tabs según el rol del usuario
+if auth.is_admin():
+    # Admin ve todas las tabs
+    tab1, tab2, tab3 = st.tabs(["📝 Carga", "📊 Resumen del Día", "📈 Reportes"])
+else:
+    # Encargados solo ven Carga y Resumen
+    tab1, tab2 = st.tabs(["📝 Carga", "📊 Resumen del Día"])
+    tab3 = None  # No hay tab de reportes para encargados
 
 # ==================== TAB 1: CARGA ====================
 with tab1:
@@ -370,116 +377,118 @@ with tab2:
         st.error(f"❌ Error al cargar movimientos: {str(e)}")
 
 # ==================== TAB 3: REPORTES ====================
-with tab3:
-    st.subheader("📈 Generar Reportes")
-    
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        fecha_desde = st.date_input("Desde", value=date.today().replace(day=1), key="reporte_desde")
-    
-    with col2:
-        fecha_hasta = st.date_input("Hasta", value=date.today(), key="reporte_hasta")
-    
-    with col3:
-        st.write("")
-        # Solo admin puede ver todas las sucursales
-        if auth.is_admin():
-            todas_sucursales = st.checkbox("Todas las sucursales", value=False)
-        else:
-            todas_sucursales = False
-    
-    if st.button("📊 Generar Reporte", type="primary"):
-        with st.spinner("Generando reporte..."):
-            try:
-                query = supabase.table("movimientos_diarios")\
-                    .select("*, sucursales(nombre), categorias(nombre), medios_pago(nombre)")\
-                    .gte("fecha", str(fecha_desde))\
-                    .lte("fecha", str(fecha_hasta))
-                
-                if not todas_sucursales:
-                    query = query.eq("sucursal_id", sucursal_seleccionada['id'])
-                
-                result = query.execute()
-                
-                if result.data:
-                    df = pd.DataFrame(result.data)
+# Solo mostrar reportes si el usuario es admin
+if tab3 is not None:
+    with tab3:
+        st.subheader("📈 Generar Reportes")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            fecha_desde = st.date_input("Desde", value=date.today().replace(day=1), key="reporte_desde")
+        
+        with col2:
+            fecha_hasta = st.date_input("Hasta", value=date.today(), key="reporte_hasta")
+        
+        with col3:
+            st.write("")
+            # Solo admin puede ver todas las sucursales
+            if auth.is_admin():
+                todas_sucursales = st.checkbox("Todas las sucursales", value=False)
+            else:
+                todas_sucursales = False
+        
+        if st.button("📊 Generar Reporte", type="primary"):
+            with st.spinner("Generando reporte..."):
+                try:
+                    query = supabase.table("movimientos_diarios")\
+                        .select("*, sucursales(nombre), categorias(nombre), medios_pago(nombre)")\
+                        .gte("fecha", str(fecha_desde))\
+                        .lte("fecha", str(fecha_hasta))
                     
-                    df['sucursal_nombre'] = df['sucursales'].apply(lambda x: x['nombre'] if x else 'N/A')
-                    df['categoria_nombre'] = df['categorias'].apply(lambda x: x['nombre'] if x else 'Sin categoría')
-                    df['medio_pago_nombre'] = df['medios_pago'].apply(lambda x: x['nombre'] if x else 'Sin medio')
+                    if not todas_sucursales:
+                        query = query.eq("sucursal_id", sucursal_seleccionada['id'])
                     
-                    # Resumen general
-                    st.markdown("### 📊 Resumen del Período")
+                    result = query.execute()
                     
-                    col1, col2, col3 = st.columns(3)
-                    
-                    ventas = df[df['tipo']=='venta']['monto'].sum()
-                    gastos = df[df['tipo']=='gasto']['monto'].sum()
-                    neto = ventas - gastos
-                    
-                    col1.metric("💰 Total Ventas", f"${ventas:,.2f}")
-                    col2.metric("💸 Total Gastos", f"${gastos:,.2f}")
-                    col3.metric("📊 Neto", f"${neto:,.2f}")
-                    
-                    st.markdown("---")
-                    
-                    # Tabla resumen por sucursal
-                    if todas_sucursales:
-                        st.markdown("### 🏪 Resumen por Sucursal")
+                    if result.data:
+                        df = pd.DataFrame(result.data)
                         
-                        resumen = df.groupby(['sucursal_nombre', 'tipo'])['monto'].sum().unstack(fill_value=0)
-                        if 'venta' in resumen.columns and 'gasto' in resumen.columns:
-                            resumen['neto'] = resumen['venta'] - resumen['gasto']
+                        df['sucursal_nombre'] = df['sucursales'].apply(lambda x: x['nombre'] if x else 'N/A')
+                        df['categoria_nombre'] = df['categorias'].apply(lambda x: x['nombre'] if x else 'Sin categoría')
+                        df['medio_pago_nombre'] = df['medios_pago'].apply(lambda x: x['nombre'] if x else 'Sin medio')
                         
-                        resumen_display = resumen.copy()
-                        for col in resumen_display.columns:
-                            resumen_display[col] = resumen_display[col].apply(lambda x: f"${x:,.2f}")
+                        # Resumen general
+                        st.markdown("### 📊 Resumen del Período")
                         
-                        st.dataframe(resumen_display, use_container_width=True)
+                        col1, col2, col3 = st.columns(3)
+                        
+                        ventas = df[df['tipo']=='venta']['monto'].sum()
+                        gastos = df[df['tipo']=='gasto']['monto'].sum()
+                        neto = ventas - gastos
+                        
+                        col1.metric("💰 Total Ventas", f"${ventas:,.2f}")
+                        col2.metric("💸 Total Gastos", f"${gastos:,.2f}")
+                        col3.metric("📊 Neto", f"${neto:,.2f}")
                         
                         st.markdown("---")
-                    
-                    # Resumen por categoría
-                    st.markdown("### 📂 Resumen por Categoría")
-                    
-                    resumen_cat = df.groupby(['tipo', 'categoria_nombre'])['monto'].sum().unstack(fill_value=0)
-                    st.dataframe(resumen_cat.style.format("${:,.2f}"), use_container_width=True)
-                    
-                    st.markdown("---")
-                    
-                    # Resumen por medio de pago
-                    st.markdown("### 💳 Resumen por Medio de Pago")
-                    
-                    resumen_medios = df[df['tipo']=='venta'].groupby('medio_pago_nombre')['monto'].sum().reset_index()
-                    resumen_medios.columns = ['Medio de Pago', 'Monto Total']
-                    resumen_medios = resumen_medios.sort_values('Monto Total', ascending=False)
-                    resumen_medios['Monto Total'] = resumen_medios['Monto Total'].apply(lambda x: f"${x:,.2f}")
-                    st.dataframe(resumen_medios, use_container_width=True, hide_index=True)
-                    
-                    st.markdown("---")
-                    
-                    # Detalle completo
-                    st.markdown("### 📋 Detalle de Movimientos")
-                    
-                    df_detalle = df[['fecha', 'sucursal_nombre', 'tipo', 'categoria_nombre', 'concepto', 'monto', 'medio_pago_nombre']].copy()
-                    df_detalle['concepto'] = df_detalle['concepto'].fillna('Sin detalle')
-                    df_detalle['monto'] = df_detalle['monto'].apply(lambda x: f"${x:,.2f}")
-                    df_detalle.columns = ['Fecha', 'Sucursal', 'Tipo', 'Categoría', 'Concepto', 'Monto', 'Medio Pago']
-                    
-                    st.dataframe(df_detalle, use_container_width=True, hide_index=True)
-                    
-                    # Botón para descargar CSV
-                    csv = df[['fecha', 'sucursal_nombre', 'tipo', 'categoria_nombre', 'concepto', 'monto', 'medio_pago_nombre']].to_csv(index=False)
-                    st.download_button(
-                        label="⬇️ Descargar CSV",
-                        data=csv,
-                        file_name=f"reporte_{fecha_desde}_{fecha_hasta}.csv",
-                        mime="text/csv"
-                    )
-                    
-                else:
-                    st.warning("⚠️ No hay datos para el período seleccionado")
-                    
-            except Exception as e:
-                st.error(f"❌ Error generando reporte: {str(e)}")
+                        
+                        # Tabla resumen por sucursal
+                        if todas_sucursales:
+                            st.markdown("### 🏪 Resumen por Sucursal")
+                            
+                            resumen = df.groupby(['sucursal_nombre', 'tipo'])['monto'].sum().unstack(fill_value=0)
+                            if 'venta' in resumen.columns and 'gasto' in resumen.columns:
+                                resumen['neto'] = resumen['venta'] - resumen['gasto']
+                            
+                            resumen_display = resumen.copy()
+                            for col in resumen_display.columns:
+                                resumen_display[col] = resumen_display[col].apply(lambda x: f"${x:,.2f}")
+                            
+                            st.dataframe(resumen_display, use_container_width=True)
+                            
+                            st.markdown("---")
+                        
+                        # Resumen por categoría
+                        st.markdown("### 📂 Resumen por Categoría")
+                        
+                        resumen_cat = df.groupby(['tipo', 'categoria_nombre'])['monto'].sum().unstack(fill_value=0)
+                        st.dataframe(resumen_cat.style.format("${:,.2f}"), use_container_width=True)
+                        
+                        st.markdown("---")
+                        
+                        # Resumen por medio de pago
+                        st.markdown("### 💳 Resumen por Medio de Pago")
+                        
+                        resumen_medios = df[df['tipo']=='venta'].groupby('medio_pago_nombre')['monto'].sum().reset_index()
+                        resumen_medios.columns = ['Medio de Pago', 'Monto Total']
+                        resumen_medios = resumen_medios.sort_values('Monto Total', ascending=False)
+                        resumen_medios['Monto Total'] = resumen_medios['Monto Total'].apply(lambda x: f"${x:,.2f}")
+                        st.dataframe(resumen_medios, use_container_width=True, hide_index=True)
+                        
+                        st.markdown("---")
+                        
+                        # Detalle completo
+                        st.markdown("### 📋 Detalle de Movimientos")
+                        
+                        df_detalle = df[['fecha', 'sucursal_nombre', 'tipo', 'categoria_nombre', 'concepto', 'monto', 'medio_pago_nombre']].copy()
+                        df_detalle['concepto'] = df_detalle['concepto'].fillna('Sin detalle')
+                        df_detalle['monto'] = df_detalle['monto'].apply(lambda x: f"${x:,.2f}")
+                        df_detalle.columns = ['Fecha', 'Sucursal', 'Tipo', 'Categoría', 'Concepto', 'Monto', 'Medio Pago']
+                        
+                        st.dataframe(df_detalle, use_container_width=True, hide_index=True)
+                        
+                        # Botón para descargar CSV
+                        csv = df[['fecha', 'sucursal_nombre', 'tipo', 'categoria_nombre', 'concepto', 'monto', 'medio_pago_nombre']].to_csv(index=False)
+                        st.download_button(
+                            label="⬇️ Descargar CSV",
+                            data=csv,
+                            file_name=f"reporte_{fecha_desde}_{fecha_hasta}.csv",
+                            mime="text/csv"
+                        )
+                        
+                    else:
+                        st.warning("⚠️ No hay datos para el período seleccionado")
+                        
+                except Exception as e:
+                    st.error(f"❌ Error generando reporte: {str(e)}")

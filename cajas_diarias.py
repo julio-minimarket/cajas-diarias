@@ -531,9 +531,10 @@ if tab4 is not None:
                     else:
                         sistema_crm = "No asignado"
                         st.warning("⚠️ Esta sucursal no tiene sistema CRM asignado")
-                except:
+                except Exception as e:
                     sistema_crm = "Error"
-                    st.error("❌ Error obteniendo sistema CRM")
+                    st.error(f"❌ Error obteniendo sistema CRM: {str(e)}")
+                    st.info("💡 Verifica que las tablas 'sucursales_crm' existan en Supabase")
                 
                 # Fecha
                 fecha_crm = st.date_input(

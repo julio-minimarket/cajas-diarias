@@ -152,13 +152,14 @@ if st.session_state.get('mostrar_cambio_pwd', False):
 # ================== TABS PRINCIPALES ==================
 # Mostrar diferentes tabs según el rol del usuario
 if auth.is_admin():
-    # Admin ve todas las tabs incluyendo CRM y Conciliación
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    # Admin ve todas las tabs incluyendo CRM, Conciliación y Mantenimiento
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "📝 Carga", 
         "📊 Resumen del Día", 
         "📈 Reportes", 
         "💼 CRM",
-        "🔄 Conciliación Cajas"
+        "🔄 Conciliación Cajas",
+        "🔧 Mantenimiento"
     ])
 else:
     # Encargados solo ven Carga y Resumen
@@ -166,6 +167,7 @@ else:
     tab3 = None  # No hay tab de reportes para encargados
     tab4 = None  # No hay tab de CRM para encargados
     tab5 = None  # No hay tab de conciliación para encargados
+    tab6 = None  # No hay tab de mantenimiento para encargados
 
 # ==================== TAB 1: CARGA ====================
 with tab1:
@@ -1047,3 +1049,339 @@ if tab5 is not None:
                 
                 except Exception as e:
                     st.error(f"❌ Error en la comparación: {str(e)}")
+
+# ==================== TAB 6: MANTENIMIENTO ====================
+# Solo mostrar Mantenimiento si el usuario es admin
+if tab6 is not None:
+    with tab6:
+        st.subheader("🔧 Mantenimiento de Base de Datos")
+        
+        st.warning("⚠️ **Importante:** Esta sección permite editar directamente los datos del sistema. Usa con precaución.")
+        
+        # Definir las tablas disponibles con sus descripciones
+        tablas_config = {
+            "sucursales": {
+                "nombre": "🏪 Sucursales",
+                "descripcion": "Lista de sucursales/locales del negocio",
+                "columnas_ocultas": ["id"],
+                "columnas_editables": ["nombre", "codigo", "activa"]
+            },
+            "categorias": {
+                "nombre": "📂 Categorías",
+                "descripcion": "Categorías para clasificar ventas y gastos",
+                "columnas_ocultas": ["id"],
+                "columnas_editables": ["nombre", "tipo", "activa"]
+            },
+            "metodos_pago": {
+                "nombre": "💳 Métodos de Pago",
+                "descripcion": "Formas de pago disponibles",
+                "columnas_ocultas": ["id"],
+                "columnas_editables": ["nombre", "tipo_aplicable", "activo", "orden"]
+            },
+            "sucursales_crm": {
+                "nombre": "💻 Sistemas CRM por Sucursal",
+                "descripcion": "Asignación de sistemas CRM a sucursales",
+                "columnas_ocultas": ["id"],
+                "columnas_editables": ["sucursal_id", "sistema_crm"]
+            },
+            "movimientos_diarios": {
+                "nombre": "📊 Movimientos Diarios",
+                "descripcion": "Ventas, gastos y sueldos registrados",
+                "columnas_ocultas": ["id"],
+                "columnas_editables": ["sucursal_id", "fecha", "tipo", "categoria_id", "concepto", "monto", "medio_pago_id"]
+            },
+            "crm_datos_diarios": {
+                "nombre": "💼 Datos CRM Diarios",
+                "descripcion": "Datos de ventas desde sistemas CRM",
+                "columnas_ocultas": ["id"],
+                "columnas_editables": ["sucursal_id", "fecha", "total_ventas_crm", "cantidad_tickets", "usuario"]
+            }
+        }
+        
+        # Selector de tabla
+        tabla_seleccionada = st.selectbox(
+            "Selecciona la tabla a editar",
+            options=list(tablas_config.keys()),
+            format_func=lambda x: tablas_config[x]["nombre"],
+            key="tabla_mantenimiento"
+        )
+        
+        st.info(f"📋 **{tablas_config[tabla_seleccionada]['descripcion']}**")
+        
+        # Tabs para diferentes operaciones
+        tab_ver, tab_agregar, tab_eliminar = st.tabs(["👁️ Ver/Editar", "➕ Agregar", "🗑️ Eliminar"])
+        
+        # ==================== VER/EDITAR ====================
+        with tab_ver:
+            st.markdown("### 👁️ Ver y Editar Registros")
+            st.markdown("Haz doble clic en una celda para editarla. Los cambios se guardan al presionar el botón.")
+            
+            try:
+                # Cargar datos de la tabla
+                result = supabase.table(tabla_seleccionada).select("*").execute()
+                
+                if result.data:
+                    df_original = pd.DataFrame(result.data)
+                    
+                    # Crear copia para edición
+                    df_edit = df_original.copy()
+                    
+                    # Mostrar información
+                    col_info1, col_info2 = st.columns(2)
+                    with col_info1:
+                        st.metric("📊 Total de registros", len(df_edit))
+                    with col_info2:
+                        st.metric("📝 Columnas", len(df_edit.columns))
+                    
+                    st.markdown("---")
+                    
+                    # Editor de datos
+                    df_editado = st.data_editor(
+                        df_edit,
+                        use_container_width=True,
+                        num_rows="fixed",
+                        disabled=tablas_config[tabla_seleccionada]["columnas_ocultas"],
+                        hide_index=True,
+                        key=f"editor_{tabla_seleccionada}"
+                    )
+                    
+                    # Detectar cambios
+                    cambios_detectados = not df_editado.equals(df_original)
+                    
+                    if cambios_detectados:
+                        st.warning("⚠️ Hay cambios sin guardar")
+                        
+                        col_btn1, col_btn2 = st.columns([1, 3])
+                        
+                        with col_btn1:
+                            if st.button("💾 Guardar Cambios", type="primary", use_container_width=True):
+                                try:
+                                    # Encontrar filas modificadas
+                                    filas_modificadas = []
+                                    for idx in df_editado.index:
+                                        if not df_editado.loc[idx].equals(df_original.loc[idx]):
+                                            filas_modificadas.append(idx)
+                                    
+                                    # Actualizar cada fila modificada
+                                    errores = []
+                                    exitosos = 0
+                                    
+                                    for idx in filas_modificadas:
+                                        fila_nueva = df_editado.loc[idx].to_dict()
+                                        fila_original = df_original.loc[idx].to_dict()
+                                        
+                                        # Obtener ID de la fila
+                                        registro_id = fila_original['id']
+                                        
+                                        # Preparar datos para actualizar (sin el ID)
+                                        datos_update = {k: v for k, v in fila_nueva.items() if k != 'id'}
+                                        
+                                        try:
+                                            supabase.table(tabla_seleccionada)\
+                                                .update(datos_update)\
+                                                .eq('id', registro_id)\
+                                                .execute()
+                                            exitosos += 1
+                                        except Exception as e:
+                                            errores.append(f"Fila {idx}: {str(e)}")
+                                    
+                                    if errores:
+                                        st.error(f"❌ Errores al guardar {len(errores)} registros:")
+                                        for error in errores:
+                                            st.error(f"  • {error}")
+                                    
+                                    if exitosos > 0:
+                                        st.success(f"✅ Se guardaron {exitosos} cambios correctamente")
+                                        st.rerun()
+                                
+                                except Exception as e:
+                                    st.error(f"❌ Error al guardar: {str(e)}")
+                        
+                        with col_btn2:
+                            if st.button("↩️ Cancelar Cambios", use_container_width=True):
+                                st.rerun()
+                    else:
+                        st.success("✅ No hay cambios pendientes")
+                
+                else:
+                    st.info("📭 No hay registros en esta tabla")
+            
+            except Exception as e:
+                st.error(f"❌ Error al cargar datos: {str(e)}")
+        
+        # ==================== AGREGAR ====================
+        with tab_agregar:
+            st.markdown("### ➕ Agregar Nuevo Registro")
+            st.markdown("Completa los campos y presiona el botón para agregar un nuevo registro.")
+            
+            with st.form(f"form_agregar_{tabla_seleccionada}"):
+                # Crear campos según la tabla
+                nuevo_registro = {}
+                
+                if tabla_seleccionada == "sucursales":
+                    nuevo_registro['nombre'] = st.text_input("Nombre de la sucursal *", placeholder="Ej: Casa Central")
+                    nuevo_registro['codigo'] = st.text_input("Código", placeholder="Ej: CC")
+                    nuevo_registro['activa'] = st.checkbox("Activa", value=True)
+                
+                elif tabla_seleccionada == "categorias":
+                    nuevo_registro['nombre'] = st.text_input("Nombre de la categoría *", placeholder="Ej: Alimentos")
+                    nuevo_registro['tipo'] = st.selectbox("Tipo *", ["venta", "gasto"])
+                    nuevo_registro['activa'] = st.checkbox("Activa", value=True)
+                
+                elif tabla_seleccionada == "metodos_pago":
+                    nuevo_registro['nombre'] = st.text_input("Nombre del método *", placeholder="Ej: Tarjeta de Crédito")
+                    nuevo_registro['tipo_aplicable'] = st.selectbox("Tipo aplicable *", ["venta", "gasto", "ambos"])
+                    nuevo_registro['activo'] = st.checkbox("Activo", value=True)
+                    nuevo_registro['orden'] = st.number_input("Orden", min_value=1, value=10)
+                
+                elif tabla_seleccionada == "sucursales_crm":
+                    # Cargar sucursales disponibles
+                    sucursales_data = supabase.table("sucursales").select("id, nombre").execute()
+                    if sucursales_data.data:
+                        sucursal_options = {s['id']: s['nombre'] for s in sucursales_data.data}
+                        sucursal_sel = st.selectbox("Sucursal *", options=list(sucursal_options.keys()), format_func=lambda x: sucursal_options[x])
+                        nuevo_registro['sucursal_id'] = sucursal_sel
+                    nuevo_registro['sistema_crm'] = st.text_input("Sistema CRM *", placeholder="Ej: JAZZ, FUDO")
+                
+                elif tabla_seleccionada == "movimientos_diarios":
+                    # Cargar datos necesarios
+                    sucursales_data = supabase.table("sucursales").select("id, nombre").execute()
+                    categorias_data = supabase.table("categorias").select("id, nombre").execute()
+                    medios_data = supabase.table("metodos_pago").select("id, nombre").execute()
+                    
+                    if sucursales_data.data:
+                        sucursal_options = {s['id']: s['nombre'] for s in sucursales_data.data}
+                        nuevo_registro['sucursal_id'] = st.selectbox("Sucursal *", options=list(sucursal_options.keys()), format_func=lambda x: sucursal_options[x])
+                    
+                    nuevo_registro['fecha'] = st.date_input("Fecha *", value=date.today())
+                    nuevo_registro['tipo'] = st.selectbox("Tipo *", ["venta", "gasto"])
+                    
+                    if categorias_data.data:
+                        cat_options = {c['id']: c['nombre'] for c in categorias_data.data}
+                        nuevo_registro['categoria_id'] = st.selectbox("Categoría *", options=list(cat_options.keys()), format_func=lambda x: cat_options[x])
+                    
+                    nuevo_registro['concepto'] = st.text_input("Concepto/Detalle")
+                    nuevo_registro['monto'] = st.number_input("Monto *", min_value=0.0, step=0.01, format="%.2f")
+                    
+                    if medios_data.data:
+                        medio_options = {m['id']: m['nombre'] for m in medios_data.data}
+                        nuevo_registro['medio_pago_id'] = st.selectbox("Método de pago *", options=list(medio_options.keys()), format_func=lambda x: medio_options[x])
+                    
+                    nuevo_registro['usuario'] = st.session_state.user['nombre']
+                
+                elif tabla_seleccionada == "crm_datos_diarios":
+                    # Cargar sucursales disponibles
+                    sucursales_data = supabase.table("sucursales").select("id, nombre").execute()
+                    if sucursales_data.data:
+                        sucursal_options = {s['id']: s['nombre'] for s in sucursales_data.data}
+                        nuevo_registro['sucursal_id'] = st.selectbox("Sucursal *", options=list(sucursal_options.keys()), format_func=lambda x: sucursal_options[x])
+                    
+                    nuevo_registro['fecha'] = st.date_input("Fecha *", value=date.today())
+                    nuevo_registro['total_ventas_crm'] = st.number_input("Total Ventas CRM *", min_value=0.0, step=0.01, format="%.2f")
+                    nuevo_registro['cantidad_tickets'] = st.number_input("Cantidad de Tickets *", min_value=0, step=1)
+                    nuevo_registro['usuario'] = st.session_state.user['nombre']
+                
+                submitted = st.form_submit_button("➕ Agregar Registro", type="primary", use_container_width=True)
+                
+                if submitted:
+                    try:
+                        # Validar campos obligatorios
+                        campos_vacios = [k for k, v in nuevo_registro.items() if v == "" or v is None]
+                        
+                        if campos_vacios:
+                            st.error(f"❌ Completa todos los campos obligatorios (*)")
+                        else:
+                            # Convertir fecha a string si existe
+                            if 'fecha' in nuevo_registro:
+                                nuevo_registro['fecha'] = str(nuevo_registro['fecha'])
+                            
+                            # Insertar en la base de datos
+                            result = supabase.table(tabla_seleccionada).insert(nuevo_registro).execute()
+                            
+                            if result.data:
+                                st.success("✅ Registro agregado correctamente")
+                                st.rerun()
+                            else:
+                                st.error("❌ Error al agregar el registro")
+                    
+                    except Exception as e:
+                        st.error(f"❌ Error: {str(e)}")
+        
+        # ==================== ELIMINAR ====================
+        with tab_eliminar:
+            st.markdown("### 🗑️ Eliminar Registros")
+            st.markdown("Selecciona los registros que deseas eliminar de la tabla.")
+            
+            st.warning("⚠️ **Cuidado:** Esta acción no se puede deshacer. Asegúrate de seleccionar correctamente.")
+            
+            try:
+                # Cargar datos
+                result = supabase.table(tabla_seleccionada).select("*").execute()
+                
+                if result.data:
+                    df_eliminar = pd.DataFrame(result.data)
+                    
+                    # Mostrar tabla para selección
+                    st.dataframe(df_eliminar, use_container_width=True, hide_index=True)
+                    
+                    st.markdown("---")
+                    
+                    # Input para IDs a eliminar
+                    ids_eliminar = st.text_input(
+                        "IDs a eliminar (separados por comas)",
+                        placeholder="Ej: 1,2,3",
+                        help="Ingresa los IDs de los registros que deseas eliminar, separados por comas"
+                    )
+                    
+                    if ids_eliminar:
+                        try:
+                            # Convertir a lista de integers
+                            lista_ids = [int(id.strip()) for id in ids_eliminar.split(',')]
+                            
+                            # Mostrar registros a eliminar
+                            registros_eliminar = df_eliminar[df_eliminar['id'].isin(lista_ids)]
+                            
+                            if not registros_eliminar.empty:
+                                st.markdown("**Registros que se eliminarán:**")
+                                st.dataframe(registros_eliminar, use_container_width=True, hide_index=True)
+                                
+                                col_confirmar1, col_confirmar2 = st.columns([1, 3])
+                                
+                                with col_confirmar1:
+                                    if st.button("🗑️ Confirmar Eliminación", type="primary", use_container_width=True):
+                                        try:
+                                            errores = []
+                                            exitosos = 0
+                                            
+                                            for registro_id in lista_ids:
+                                                try:
+                                                    supabase.table(tabla_seleccionada)\
+                                                        .delete()\
+                                                        .eq('id', registro_id)\
+                                                        .execute()
+                                                    exitosos += 1
+                                                except Exception as e:
+                                                    errores.append(f"ID {registro_id}: {str(e)}")
+                                            
+                                            if errores:
+                                                st.error(f"❌ Errores al eliminar {len(errores)} registros:")
+                                                for error in errores:
+                                                    st.error(f"  • {error}")
+                                            
+                                            if exitosos > 0:
+                                                st.success(f"✅ Se eliminaron {exitosos} registros correctamente")
+                                                st.rerun()
+                                        
+                                        except Exception as e:
+                                            st.error(f"❌ Error al eliminar: {str(e)}")
+                            else:
+                                st.warning("⚠️ No se encontraron registros con esos IDs")
+                        
+                        except ValueError:
+                            st.error("❌ IDs inválidos. Usa solo números separados por comas")
+                
+                else:
+                    st.info("📭 No hay registros en esta tabla")
+            
+            except Exception as e:
+                st.error(f"❌ Error al cargar datos: {str(e)}")

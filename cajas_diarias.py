@@ -948,8 +948,6 @@ if tab5 is not None:
         
         # ==================== CONSULTA INDIVIDUAL ====================
         with tab_concil_individual:
-        # ==================== CONSULTA INDIVIDUAL ====================
-        with tab_concil_individual:
             st.markdown("### 🔍 Consulta Individual de Sucursal")
             st.markdown("Compara una sucursal específica en una fecha determinada con información detallada")
             

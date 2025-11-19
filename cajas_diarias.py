@@ -152,13 +152,20 @@ if st.session_state.get('mostrar_cambio_pwd', False):
 # ================== TABS PRINCIPALES ==================
 # Mostrar diferentes tabs según el rol del usuario
 if auth.is_admin():
-    # Admin ve todas las tabs incluyendo CRM
-    tab1, tab2, tab3, tab4 = st.tabs(["📝 Carga", "📊 Resumen del Día", "📈 Reportes", "💼 CRM"])
+    # Admin ve todas las tabs incluyendo CRM y Conciliación
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        "📝 Carga", 
+        "📊 Resumen del Día", 
+        "📈 Reportes", 
+        "💼 CRM",
+        "🔄 Conciliación Cajas"
+    ])
 else:
     # Encargados solo ven Carga y Resumen
     tab1, tab2 = st.tabs(["📝 Carga", "📊 Resumen del Día"])
     tab3 = None  # No hay tab de reportes para encargados
     tab4 = None  # No hay tab de CRM para encargados
+    tab5 = None  # No hay tab de conciliación para encargados
 
 # ==================== TAB 1: CARGA ====================
 with tab1:
@@ -635,171 +642,419 @@ if tab4 is not None:
                             else:
                                 st.error("❌ Error al guardar los datos")
                         
-                        st.cache_data.clear()
-                        
                     except Exception as e:
                         st.error(f"❌ Error: {str(e)}")
         
         st.markdown("---")
+        st.info("💡 **Próximos pasos:** Ve a la pestaña '🔄 Conciliación Cajas' para comparar los datos cargados con el sistema de cajas.")
+
+# ==================== TAB 5: CONCILIACIÓN CAJAS ====================
+# Solo mostrar Conciliación si el usuario es admin
+if tab5 is not None:
+    with tab5:
+        st.subheader("🔄 Conciliación: Sistema de Cajas vs CRM")
         
-        # ==================== COMPARACIÓN Y VISUALIZACIÓN ====================
-        st.markdown("### 📊 Comparación: Sistema de Cajas vs CRM")
+        st.info("📊 En esta sección puedes comparar los datos del sistema de cajas con los datos de CRM para detectar diferencias y asegurar la integridad de la información.")
         
-        col_comp1, col_comp2, col_comp3 = st.columns(3)
+        # Tabs para diferentes tipos de informes
+        tab_concil_diario, tab_concil_mensual, tab_concil_individual = st.tabs([
+            "📅 Informe Diario",
+            "📆 Informe Mensual", 
+            "🔍 Consulta Individual"
+        ])
         
-        with col_comp1:
-            fecha_comparacion = st.date_input(
-                "Fecha a comparar",
-                value=date.today(),
-                key="fecha_comparacion"
-            )
-        
-        with col_comp2:
-            sucursal_comparacion = st.selectbox(
-                "Sucursal",
-                options=sucursales_disponibles,
-                format_func=lambda x: x['nombre'],
-                key="sucursal_comparacion"
-            )
-        
-        with col_comp3:
-            st.write("")
-            if st.button("🔍 Comparar", type="primary", use_container_width=True):
-                try:
-                    # Obtener datos del sistema de cajas
-                    movimientos = supabase.table("movimientos_diarios")\
-                        .select("*")\
-                        .eq("sucursal_id", sucursal_comparacion['id'])\
-                        .eq("fecha", str(fecha_comparacion))\
-                        .eq("tipo", "venta")\
-                        .execute()
-                    
-                    total_cajas = sum([m['monto'] for m in movimientos.data]) if movimientos.data else 0.0
-                    
-                    # Obtener datos del CRM
-                    crm_data = supabase.table("crm_datos_diarios")\
-                        .select("*")\
-                        .eq("sucursal_id", sucursal_comparacion['id'])\
-                        .eq("fecha", str(fecha_comparacion))\
-                        .execute()
-                    
-                    if crm_data.data:
-                        total_crm = crm_data.data[0]['total_ventas_crm']
-                        tickets = crm_data.data[0]['cantidad_tickets']
+        # ==================== INFORME DIARIO - TODAS LAS SUCURSALES ====================
+        with tab_concil_diario:
+            st.markdown("### 📅 Conciliación Diaria - Todas las Sucursales")
+            st.markdown("Compara las ventas de todas las sucursales en una fecha específica")
+            
+            col_fecha_diario = st.columns([2, 1])
+            
+            with col_fecha_diario[0]:
+                fecha_informe_diario = st.date_input(
+                    "Fecha a conciliar",
+                    value=date.today(),
+                    key="fecha_informe_diario"
+                )
+            
+            with col_fecha_diario[1]:
+                st.write("")
+                if st.button("📊 Generar Informe Diario", type="primary", use_container_width=True):
+                    try:
+                        # Obtener todas las sucursales (admin ve todas)
+                        resultados = []
                         
-                        st.markdown("#### 📈 Resultados de la Comparación")
-                        
-                        col_res1, col_res2, col_res3 = st.columns(3)
-                        
-                        with col_res1:
-                            st.metric(
-                                "💼 Sistema de Cajas",
-                                f"${total_cajas:,.2f}",
-                                help="Total de ventas registradas en el sistema de cajas"
-                            )
-                        
-                        with col_res2:
-                            st.metric(
-                                "💻 Sistema CRM",
-                                f"${total_crm:,.2f}",
-                                help="Total de ventas según el CRM"
-                            )
-                        
-                        with col_res3:
-                            diferencia = total_cajas - total_crm
-                            porcentaje = (diferencia / total_crm * 100) if total_crm > 0 else 0
-                            
-                            st.metric(
-                                "📊 Diferencia",
-                                f"${abs(diferencia):,.2f}",
-                                f"{porcentaje:.2f}%",
-                                delta_color="inverse" if diferencia < 0 else "normal"
-                            )
-                        
-                        # Análisis
-                        st.markdown("---")
-                        
-                        if abs(diferencia) < 100:
-                            st.success("✅ Los valores coinciden correctamente (diferencia < $100)")
-                        elif abs(diferencia) < 500:
-                            st.warning(f"⚠️ Diferencia moderada de ${abs(diferencia):,.2f} - Revisar")
-                        else:
-                            st.error(f"❌ Diferencia significativa de ${abs(diferencia):,.2f} - Requiere auditoría")
-                        
-                        # Información adicional
-                        col_info1, col_info2 = st.columns(2)
-                        with col_info1:
-                            st.info(f"🎫 **Tickets emitidos:** {tickets}")
-                            if total_cajas > 0 and tickets > 0:
-                                ticket_promedio = total_cajas / tickets
-                                st.info(f"💵 **Ticket promedio:** ${ticket_promedio:,.2f}")
-                        
-                        with col_info2:
-                            # Obtener sistema CRM
-                            crm_sistema = supabase.table("sucursales_crm")\
-                                .select("sistema_crm")\
-                                .eq("sucursal_id", sucursal_comparacion['id'])\
-                                .single()\
+                        for suc in sucursales:
+                            # Obtener ventas del sistema de cajas
+                            movimientos = supabase.table("movimientos_diarios")\
+                                .select("monto")\
+                                .eq("sucursal_id", suc['id'])\
+                                .eq("fecha", str(fecha_informe_diario))\
+                                .eq("tipo", "venta")\
                                 .execute()
                             
-                            if crm_sistema.data:
-                                st.info(f"💻 **Sistema CRM:** {crm_sistema.data['sistema_crm']}")
-                    else:
-                        st.warning(f"⚠️ No hay datos de CRM cargados para {sucursal_comparacion['nombre']} en la fecha {fecha_comparacion.strftime('%d/%m/%Y')}")
-                        st.info(f"💼 Sistema de Cajas registró: ${total_cajas:,.2f}")
-                
-                except Exception as e:
-                    st.error(f"❌ Error en la comparación: {str(e)}")
-        
-        st.markdown("---")
-        
-        # ==================== HISTORIAL ====================
-        st.markdown("### 📋 Historial de Datos CRM")
-        
-        col_hist1, col_hist2 = st.columns(2)
-        
-        with col_hist1:
-            fecha_desde_crm = st.date_input("Desde", value=date.today().replace(day=1), key="fecha_desde_crm")
-        
-        with col_hist2:
-            fecha_hasta_crm = st.date_input("Hasta", value=date.today(), key="fecha_hasta_crm")
-        
-        if st.button("📊 Ver Historial", type="secondary"):
-            try:
-                historial = supabase.table("crm_datos_diarios")\
-                    .select("*, sucursales(nombre)")\
-                    .gte("fecha", str(fecha_desde_crm))\
-                    .lte("fecha", str(fecha_hasta_crm))\
-                    .order("fecha", desc=True)\
-                    .execute()
-                
-                if historial.data:
-                    df_hist = pd.DataFrame(historial.data)
-                    df_hist['sucursal_nombre'] = df_hist['sucursales'].apply(lambda x: x['nombre'] if x else 'N/A')
+                            total_cajas = sum([m['monto'] for m in movimientos.data]) if movimientos.data else 0.0
+                            
+                            # Obtener datos del CRM
+                            crm_data = supabase.table("crm_datos_diarios")\
+                                .select("total_ventas_crm, cantidad_tickets")\
+                                .eq("sucursal_id", suc['id'])\
+                                .eq("fecha", str(fecha_informe_diario))\
+                                .execute()
+                            
+                            total_crm = crm_data.data[0]['total_ventas_crm'] if crm_data.data else 0.0
+                            tickets = crm_data.data[0]['cantidad_tickets'] if crm_data.data else 0
+                            
+                            diferencia = total_cajas - total_crm
+                            porcentaje = (abs(diferencia) / total_crm * 100) if total_crm > 0 else 0
+                            
+                            # Determinar estado
+                            if total_crm == 0:
+                                estado = "Sin datos CRM"
+                            elif abs(diferencia) < 100:
+                                estado = "✅ OK"
+                            elif abs(diferencia) < 500:
+                                estado = "⚠️ Revisar"
+                            else:
+                                estado = "❌ Crítico"
+                            
+                            resultados.append({
+                                'Sucursal': suc['nombre'],
+                                'Sistema Cajas': total_cajas,
+                                'Sistema CRM': total_crm,
+                                'Diferencia': diferencia,
+                                'Diferencia %': porcentaje,
+                                'Tickets': tickets,
+                                'Estado': estado
+                            })
+                        
+                        # Crear DataFrame
+                        df_conciliacion = pd.DataFrame(resultados)
+                        
+                        if not df_conciliacion.empty:
+                            st.markdown("#### 📊 Resultados de Conciliación Diaria")
+                            st.markdown(f"**Fecha:** {fecha_informe_diario.strftime('%d/%m/%Y')}")
+                            
+                            # Métricas generales
+                            col_met1, col_met2, col_met3, col_met4 = st.columns(4)
+                            
+                            with col_met1:
+                                total_cajas_general = df_conciliacion['Sistema Cajas'].sum()
+                                st.metric("💼 Total Cajas", f"${total_cajas_general:,.2f}")
+                            
+                            with col_met2:
+                                total_crm_general = df_conciliacion['Sistema CRM'].sum()
+                                st.metric("💻 Total CRM", f"${total_crm_general:,.2f}")
+                            
+                            with col_met3:
+                                diferencia_general = total_cajas_general - total_crm_general
+                                st.metric(
+                                    "📊 Diferencia Total", 
+                                    f"${abs(diferencia_general):,.2f}",
+                                    f"{diferencia_general:,.2f}"
+                                )
+                            
+                            with col_met4:
+                                sucursales_ok = len(df_conciliacion[df_conciliacion['Estado'] == '✅ OK'])
+                                st.metric("✅ Sucursales OK", f"{sucursales_ok}/{len(df_conciliacion)}")
+                            
+                            st.markdown("---")
+                            
+                            # Formatear DataFrame para mostrar
+                            df_display = df_conciliacion.copy()
+                            df_display['Sistema Cajas'] = df_display['Sistema Cajas'].apply(lambda x: f"${x:,.2f}")
+                            df_display['Sistema CRM'] = df_display['Sistema CRM'].apply(lambda x: f"${x:,.2f}")
+                            df_display['Diferencia'] = df_display['Diferencia'].apply(lambda x: f"${x:,.2f}")
+                            df_display['Diferencia %'] = df_display['Diferencia %'].apply(lambda x: f"{x:.2f}%")
+                            
+                            # Mostrar tabla con colores
+                            st.dataframe(
+                                df_display,
+                                use_container_width=True,
+                                hide_index=True,
+                                column_config={
+                                    "Estado": st.column_config.TextColumn(
+                                        "Estado",
+                                        width="small"
+                                    )
+                                }
+                            )
+                            
+                            # Exportar a CSV
+                            csv = df_conciliacion.to_csv(index=False)
+                            st.download_button(
+                                label="📥 Descargar Informe (CSV)",
+                                data=csv,
+                                file_name=f"conciliacion_diaria_{fecha_informe_diario}.csv",
+                                mime="text/csv"
+                            )
+                        else:
+                            st.warning("No hay datos para mostrar en la fecha seleccionada")
                     
-                    df_display = df_hist[['fecha', 'sucursal_nombre', 'total_ventas_crm', 'cantidad_tickets', 'usuario']].copy()
-                    df_display['total_ventas_crm'] = df_display['total_ventas_crm'].apply(lambda x: f"${x:,.2f}")
-                    df_display.columns = ['Fecha', 'Sucursal', 'Total Ventas CRM', 'Tickets', 'Usuario']
-                    
-                    st.dataframe(df_display, use_container_width=True, hide_index=True)
-                    
-                    # Estadísticas del período
-                    st.markdown("#### 📈 Estadísticas del Período")
-                    col_stats1, col_stats2, col_stats3 = st.columns(3)
-                    
-                    with col_stats1:
-                        total_ventas_periodo = df_hist['total_ventas_crm'].sum()
-                        st.metric("💰 Total Ventas CRM", f"${total_ventas_periodo:,.2f}")
-                    
-                    with col_stats2:
-                        total_tickets_periodo = df_hist['cantidad_tickets'].sum()
-                        st.metric("🎫 Total Tickets", f"{total_tickets_periodo:,}")
-                    
-                    with col_stats3:
-                        ticket_promedio_periodo = total_ventas_periodo / total_tickets_periodo if total_tickets_periodo > 0 else 0
-                        st.metric("💵 Ticket Promedio", f"${ticket_promedio_periodo:,.2f}")
-                else:
-                    st.info("📭 No hay datos de CRM para el período seleccionado")
+                    except Exception as e:
+                        st.error(f"❌ Error generando informe: {str(e)}")
+        
+        # ==================== INFORME MENSUAL - TODAS LAS SUCURSALES ====================
+        with tab_concil_mensual:
+            st.markdown("### 📆 Conciliación Mensual - Todas las Sucursales")
+            st.markdown("Compara las ventas acumuladas del mes para todas las sucursales")
             
-            except Exception as e:
-                st.error(f"❌ Error al cargar historial: {str(e)}")
+            col_mes1, col_mes2, col_mes3 = st.columns(3)
+            
+            with col_mes1:
+                año_mensual = st.number_input(
+                    "Año",
+                    min_value=2020,
+                    max_value=2030,
+                    value=date.today().year,
+                    key="año_mensual"
+                )
+            
+            with col_mes2:
+                mes_mensual = st.selectbox(
+                    "Mes",
+                    options=list(range(1, 13)),
+                    format_func=lambda x: [
+                        "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+                        "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
+                    ][x-1],
+                    index=date.today().month - 1,
+                    key="mes_mensual"
+                )
+            
+            with col_mes3:
+                st.write("")
+                if st.button("📊 Generar Informe Mensual", type="primary", use_container_width=True):
+                    try:
+                        # Calcular fechas del mes
+                        from calendar import monthrange
+                        ultimo_dia = monthrange(año_mensual, mes_mensual)[1]
+                        fecha_desde = date(año_mensual, mes_mensual, 1)
+                        fecha_hasta = date(año_mensual, mes_mensual, ultimo_dia)
+                        
+                        resultados_mensual = []
+                        
+                        for suc in sucursales:
+                            # Obtener ventas del sistema de cajas del mes
+                            movimientos = supabase.table("movimientos_diarios")\
+                                .select("monto")\
+                                .eq("sucursal_id", suc['id'])\
+                                .gte("fecha", str(fecha_desde))\
+                                .lte("fecha", str(fecha_hasta))\
+                                .eq("tipo", "venta")\
+                                .execute()
+                            
+                            total_cajas_mes = sum([m['monto'] for m in movimientos.data]) if movimientos.data else 0.0
+                            
+                            # Obtener datos del CRM del mes
+                            crm_data = supabase.table("crm_datos_diarios")\
+                                .select("total_ventas_crm, cantidad_tickets")\
+                                .eq("sucursal_id", suc['id'])\
+                                .gte("fecha", str(fecha_desde))\
+                                .lte("fecha", str(fecha_hasta))\
+                                .execute()
+                            
+                            total_crm_mes = sum([d['total_ventas_crm'] for d in crm_data.data]) if crm_data.data else 0.0
+                            tickets_mes = sum([d['cantidad_tickets'] for d in crm_data.data]) if crm_data.data else 0
+                            dias_con_datos_crm = len(crm_data.data) if crm_data.data else 0
+                            
+                            diferencia_mes = total_cajas_mes - total_crm_mes
+                            porcentaje_mes = (abs(diferencia_mes) / total_crm_mes * 100) if total_crm_mes > 0 else 0
+                            
+                            # Determinar estado
+                            if total_crm_mes == 0:
+                                estado_mes = "Sin datos CRM"
+                            elif abs(diferencia_mes) < 1000:
+                                estado_mes = "✅ OK"
+                            elif abs(diferencia_mes) < 5000:
+                                estado_mes = "⚠️ Revisar"
+                            else:
+                                estado_mes = "❌ Crítico"
+                            
+                            resultados_mensual.append({
+                                'Sucursal': suc['nombre'],
+                                'Sistema Cajas': total_cajas_mes,
+                                'Sistema CRM': total_crm_mes,
+                                'Diferencia': diferencia_mes,
+                                'Diferencia %': porcentaje_mes,
+                                'Tickets Mes': tickets_mes,
+                                'Días con CRM': dias_con_datos_crm,
+                                'Estado': estado_mes
+                            })
+                        
+                        # Crear DataFrame
+                        df_concil_mensual = pd.DataFrame(resultados_mensual)
+                        
+                        if not df_concil_mensual.empty:
+                            st.markdown("#### 📊 Resultados de Conciliación Mensual")
+                            mes_nombre = [
+                                "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+                                "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
+                            ][mes_mensual-1]
+                            st.markdown(f"**Período:** {mes_nombre} {año_mensual}")
+                            
+                            # Métricas generales mensuales
+                            col_met1, col_met2, col_met3, col_met4 = st.columns(4)
+                            
+                            with col_met1:
+                                total_cajas_mes_general = df_concil_mensual['Sistema Cajas'].sum()
+                                st.metric("💼 Total Cajas Mes", f"${total_cajas_mes_general:,.2f}")
+                            
+                            with col_met2:
+                                total_crm_mes_general = df_concil_mensual['Sistema CRM'].sum()
+                                st.metric("💻 Total CRM Mes", f"${total_crm_mes_general:,.2f}")
+                            
+                            with col_met3:
+                                diferencia_mes_general = total_cajas_mes_general - total_crm_mes_general
+                                st.metric(
+                                    "📊 Diferencia Mes", 
+                                    f"${abs(diferencia_mes_general):,.2f}",
+                                    f"{diferencia_mes_general:,.2f}"
+                                )
+                            
+                            with col_met4:
+                                sucursales_ok_mes = len(df_concil_mensual[df_concil_mensual['Estado'] == '✅ OK'])
+                                st.metric("✅ Sucursales OK", f"{sucursales_ok_mes}/{len(df_concil_mensual)}")
+                            
+                            st.markdown("---")
+                            
+                            # Formatear DataFrame para mostrar
+                            df_display_mensual = df_concil_mensual.copy()
+                            df_display_mensual['Sistema Cajas'] = df_display_mensual['Sistema Cajas'].apply(lambda x: f"${x:,.2f}")
+                            df_display_mensual['Sistema CRM'] = df_display_mensual['Sistema CRM'].apply(lambda x: f"${x:,.2f}")
+                            df_display_mensual['Diferencia'] = df_display_mensual['Diferencia'].apply(lambda x: f"${x:,.2f}")
+                            df_display_mensual['Diferencia %'] = df_display_mensual['Diferencia %'].apply(lambda x: f"{x:.2f}%")
+                            
+                            # Mostrar tabla
+                            st.dataframe(
+                                df_display_mensual,
+                                use_container_width=True,
+                                hide_index=True
+                            )
+                            
+                            # Exportar a CSV
+                            csv_mensual = df_concil_mensual.to_csv(index=False)
+                            st.download_button(
+                                label="📥 Descargar Informe Mensual (CSV)",
+                                data=csv_mensual,
+                                file_name=f"conciliacion_mensual_{mes_mensual}_{año_mensual}.csv",
+                                mime="text/csv"
+                            )
+                        else:
+                            st.warning("No hay datos para mostrar en el período seleccionado")
+                    
+                    except Exception as e:
+                        st.error(f"❌ Error generando informe mensual: {str(e)}")
+        
+        # ==================== CONSULTA INDIVIDUAL ====================
+        with tab_concil_individual:
+        # ==================== CONSULTA INDIVIDUAL ====================
+        with tab_concil_individual:
+            st.markdown("### 🔍 Consulta Individual de Sucursal")
+            st.markdown("Compara una sucursal específica en una fecha determinada con información detallada")
+            
+            col_comp1, col_comp2, col_comp3 = st.columns(3)
+            
+            with col_comp1:
+                fecha_comparacion = st.date_input(
+                    "Fecha a comparar",
+                    value=date.today(),
+                    key="fecha_comparacion_individual"
+                )
+            
+            with col_comp2:
+                sucursal_comparacion = st.selectbox(
+                    "Sucursal",
+                    options=sucursales_disponibles,
+                    format_func=lambda x: x['nombre'],
+                    key="sucursal_comparacion_individual"
+                )
+            
+            with col_comp3:
+                st.write("")
+                if st.button("🔍 Comparar", type="primary", use_container_width=True):
+                    try:
+                        # Obtener datos del sistema de cajas
+                        movimientos = supabase.table("movimientos_diarios")\
+                            .select("*")\
+                            .eq("sucursal_id", sucursal_comparacion['id'])\
+                            .eq("fecha", str(fecha_comparacion))\
+                            .eq("tipo", "venta")\
+                            .execute()
+                        
+                        total_cajas = sum([m['monto'] for m in movimientos.data]) if movimientos.data else 0.0
+                        
+                        # Obtener datos del CRM
+                        crm_data = supabase.table("crm_datos_diarios")\
+                            .select("*")\
+                            .eq("sucursal_id", sucursal_comparacion['id'])\
+                            .eq("fecha", str(fecha_comparacion))\
+                            .execute()
+                        
+                        if crm_data.data:
+                            total_crm = crm_data.data[0]['total_ventas_crm']
+                            tickets = crm_data.data[0]['cantidad_tickets']
+                            
+                            st.markdown("#### 📈 Resultados de la Comparación")
+                            
+                            col_res1, col_res2, col_res3 = st.columns(3)
+                            
+                            with col_res1:
+                                st.metric(
+                                    "💼 Sistema de Cajas",
+                                    f"${total_cajas:,.2f}",
+                                    help="Total de ventas registradas en el sistema de cajas"
+                                )
+                            
+                            with col_res2:
+                                st.metric(
+                                    "💻 Sistema CRM",
+                                    f"${total_crm:,.2f}",
+                                    help="Total de ventas según el CRM"
+                                )
+                            
+                            with col_res3:
+                                diferencia = total_cajas - total_crm
+                                porcentaje = (diferencia / total_crm * 100) if total_crm > 0 else 0
+                                
+                                st.metric(
+                                    "📊 Diferencia",
+                                    f"${abs(diferencia):,.2f}",
+                                    f"{porcentaje:.2f}%",
+                                    delta_color="inverse" if diferencia < 0 else "normal"
+                                )
+                            
+                            # Análisis
+                            st.markdown("---")
+                            
+                            if abs(diferencia) < 100:
+                                st.success("✅ Los valores coinciden correctamente (diferencia < $100)")
+                            elif abs(diferencia) < 500:
+                                st.warning(f"⚠️ Diferencia moderada de ${abs(diferencia):,.2f} - Revisar")
+                            else:
+                                st.error(f"❌ Diferencia significativa de ${abs(diferencia):,.2f} - Requiere auditoría")
+                            
+                            # Información adicional
+                            col_info1, col_info2 = st.columns(2)
+                            with col_info1:
+                                st.info(f"🎫 **Tickets emitidos:** {tickets}")
+                                if total_cajas > 0 and tickets > 0:
+                                    ticket_promedio = total_cajas / tickets
+                                    st.info(f"💵 **Ticket promedio:** ${ticket_promedio:,.2f}")
+                            
+                            with col_info2:
+                                # Obtener sistema CRM
+                                crm_sistema = supabase.table("sucursales_crm")\
+                                    .select("sistema_crm")\
+                                    .eq("sucursal_id", sucursal_comparacion['id'])\
+                                    .single()\
+                                    .execute()
+                                
+                                if crm_sistema.data:
+                                    st.info(f"💻 **Sistema CRM:** {crm_sistema.data['sistema_crm']}")
+                        else:
+                            st.warning(f"⚠️ No hay datos de CRM cargados para {sucursal_comparacion['nombre']} en la fecha {fecha_comparacion.strftime('%d/%m/%Y')}")
+                            st.info(f"💼 Sistema de Cajas registró: ${total_cajas:,.2f}")
+                    
+                    except Exception as e:
+                        st.error(f"❌ Error en la comparación: {str(e)}")

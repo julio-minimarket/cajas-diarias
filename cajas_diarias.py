@@ -529,32 +529,36 @@ if tab4 is not None:
             col1, col2 = st.columns(2)
             
             with col1:
-                # Selector de sucursal
-                sucursal_crm = st.selectbox(
-                    "🏪 Sucursal",
-                    options=sucursales,
-                    format_func=lambda x: x['nombre'],
-                    key="sucursal_crm"
-                )
-                
-                # Obtener sistema CRM de la sucursal
+                # Cargar sucursales con su sistema CRM
                 try:
-                    crm_info = supabase.table("sucursales_crm")\
-                        .select("sistema_crm")\
-                        .eq("sucursal_id", sucursal_crm['id'])\
-                        .single()\
-                        .execute()
+                    sucursales_con_crm = []
+                    for suc in sucursales_disponibles:  # Usar sucursales del usuario
+                        crm_info = supabase.table("sucursales_crm")\
+                            .select("sistema_crm")\
+                            .eq("sucursal_id", suc['id'])\
+                            .single()\
+                            .execute()
+                        
+                        suc_con_crm = suc.copy()
+                        suc_con_crm['sistema_crm'] = crm_info.data['sistema_crm'] if crm_info.data else "Sin asignar"
+                        sucursales_con_crm.append(suc_con_crm)
                     
-                    if crm_info.data:
-                        sistema_crm = crm_info.data['sistema_crm']
-                        st.info(f"💻 Sistema CRM: **{sistema_crm}**")
-                    else:
-                        sistema_crm = "No asignado"
-                        st.warning("⚠️ Esta sucursal no tiene sistema CRM asignado")
+                    # Selector de sucursal con sistema CRM incluido
+                    sucursal_crm = st.selectbox(
+                        "🏪 Sucursal",
+                        options=sucursales_con_crm,
+                        format_func=lambda x: f"{x['nombre']} (💻 {x['sistema_crm']})",
+                        key="sucursal_crm"
+                    )
+                    
                 except Exception as e:
-                    sistema_crm = "Error"
-                    st.error(f"❌ Error obteniendo sistema CRM: {str(e)}")
-                    st.info("💡 Verifica que las tablas 'sucursales_crm' existan en Supabase")
+                    st.error(f"❌ Error cargando sucursales: {str(e)}")
+                    sucursal_crm = st.selectbox(
+                        "🏪 Sucursal",
+                        options=sucursales_disponibles,  # Usar sucursales del usuario
+                        format_func=lambda x: x['nombre'],
+                        key="sucursal_crm"
+                    )
                 
                 # Fecha
                 fecha_crm = st.date_input(

@@ -96,10 +96,6 @@ def obtener_sucursales():
         st.error(f"Error obteniendo sucursales: {e}")
         return []
 
-def limpiar_cache():
-    """Limpia el cache de datos"""
-    st.cache_data.clear()
-    st.rerun()
 
 @st.cache_data(ttl=3600)
 def obtener_categorias(tipo):
@@ -139,19 +135,6 @@ sucursales = obtener_sucursales()
 if not sucursales:
     st.warning("⚠️ No hay sucursales configuradas.")
     st.stop()
-
-# DEBUG: Mostrar cuántas sucursales se cargaron
-st.sidebar.info(f"✅ {len(sucursales)} sucursales cargadas")
-
-# Expander con información de debug
-with st.sidebar.expander("🔍 Debug - Sucursales"):
-    st.write("**Sucursales en base de datos:**")
-    for suc in sucursales:
-        st.write(f"- {suc['nombre']} (ID: {suc['id']})")
-
-# Botón para refrescar datos
-if st.sidebar.button("🔄 Refrescar Datos", help="Limpia el caché y recarga las sucursales"):
-    limpiar_cache()
 
 # Filtrar sucursales según el usuario
 sucursales_disponibles = auth.filtrar_sucursales_disponibles(sucursales)

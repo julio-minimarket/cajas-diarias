@@ -438,10 +438,13 @@ with tab2:
                     ]
                     ventas_electronicos_monto = medios_electronicos_df['monto'].sum()
                     
-                    # Crear DataFrame de resumen agrupado
+                    # Calcular total
+                    total_medios = ventas_efectivo_monto + ventas_pedidoya_monto + ventas_electronicos_monto
+                    
+                    # Crear DataFrame de resumen agrupado con total
                     resumen_agrupado = pd.DataFrame({
-                        'Grupo': ['1. Ventas Efectivo', '2. Tarjeta Pedido Ya', '3. Medios Electrónicos'],
-                        'Monto': [ventas_efectivo_monto, ventas_pedidoya_monto, ventas_electronicos_monto]
+                        'Grupo': ['1. Ventas Efectivo', '2. Tarjeta Pedido Ya', '3. Medios Electrónicos', 'TOTAL'],
+                        'Monto': [ventas_efectivo_monto, ventas_pedidoya_monto, ventas_electronicos_monto, total_medios]
                     })
                     resumen_agrupado['Monto Formato'] = resumen_agrupado['Monto'].apply(lambda x: f"${x:,.2f}")
                     
@@ -499,27 +502,6 @@ with tab2:
                 # Total de gastos
                 st.markdown(f"**TOTAL GASTOS: ${montos_gastos.sum():,.2f}**")
                 st.markdown("---")
-            
-            # Gráficos
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.subheader("Ventas por Medio de Pago")
-                if len(df_ventas) > 0:
-                    ventas_medio = df_ventas.groupby('medio_pago_nombre')['monto'].sum()
-                    if not ventas_medio.empty:
-                        st.bar_chart(ventas_medio)
-                else:
-                    st.info("No hay ventas para mostrar")
-            
-            with col2:
-                st.subheader("Gastos por Categoría")
-                if len(df_gastos) > 0:
-                    gastos_cat = df_gastos.groupby('categoria_nombre')['monto'].sum()
-                    if not gastos_cat.empty:
-                        st.bar_chart(gastos_cat)
-                else:
-                    st.info("No hay gastos para mostrar")
         else:
             st.info("📭 No hay movimientos cargados para esta fecha")
             

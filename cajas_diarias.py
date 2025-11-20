@@ -430,11 +430,11 @@ with tab2:
                 if len(df_ventas) > 0:
                     # Agrupar medios de pago en 3 categorías
                     ventas_efectivo_monto = df_ventas[df_ventas['medio_pago_nombre'] == 'Efectivo']['monto'].sum()
-                    ventas_pedidoya_monto = df_ventas[df_ventas['medio_pago_nombre'] == 'Tarjeta Pedido Ya']['monto'].sum()
+                    ventas_pedidoya_monto = df_ventas[df_ventas['medio_pago_nombre'] == 'Tarjeta Pedidos Ya']['monto'].sum()
                     
-                    # Medios Electrónicos = Todo lo que NO es Efectivo ni Tarjeta Pedido Ya
+                    # Medios Electrónicos = Todo lo que NO es Efectivo ni Tarjeta Pedidos Ya
                     medios_electronicos_df = df_ventas[
-                        (~df_ventas['medio_pago_nombre'].isin(['Efectivo', 'Tarjeta Pedido Ya']))
+                        (~df_ventas['medio_pago_nombre'].isin(['Efectivo', 'Tarjeta Pedidos Ya']))
                     ]
                     ventas_electronicos_monto = medios_electronicos_df['monto'].sum()
                     
@@ -443,7 +443,7 @@ with tab2:
                     
                     # Crear DataFrame de resumen agrupado con total
                     resumen_agrupado = pd.DataFrame({
-                        'Grupo': ['1. Ventas Efectivo', '2. Tarjeta Pedido Ya', '3. Medios Electrónicos', 'TOTAL'],
+                        'Grupo': ['1. Ventas Efectivo', '2. Tarjeta Pedidos Ya', '3. Medios Electrónicos', 'TOTAL'],
                         'Monto': [ventas_efectivo_monto, ventas_pedidoya_monto, ventas_electronicos_monto, total_medios]
                     })
                     resumen_agrupado['Monto Formato'] = resumen_agrupado['Monto'].apply(lambda x: f"${x:,.2f}")

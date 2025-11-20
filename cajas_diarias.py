@@ -368,22 +368,39 @@ with tab2:
             # Totales
             ventas_total = df_ventas['monto'].sum() if len(df_ventas) > 0 else 0.0
             gastos_total = df_gastos['monto'].sum() if len(df_gastos) > 0 else 0.0
-            neto = ventas_total - gastos_total
             
             # Ventas en efectivo específicamente
             ventas_efectivo = df_ventas[df_ventas['medio_pago_nombre'] == 'Efectivo']['monto'].sum() if len(df_ventas) > 0 else 0.0
             
+            # Total Tarjetas = Total Ventas - Efectivo
+            total_tarjetas = ventas_total - ventas_efectivo
+            
             # EFECTIVO ENTREGADO = Ventas en Efectivo - Total de Gastos
             efectivo_entregado = ventas_efectivo - gastos_total
             
-            # Métricas principales (5 columnas)
-            col1, col2, col3, col4, col5 = st.columns(5)
+            # Obtener datos del CRM para tickets
+            try:
+                crm_data = supabase.table("crm_datos_diarios")\
+                    .select("cantidad_tickets")\
+                    .eq("sucursal_id", sucursal_seleccionada['id'])\
+                    .eq("fecha", str(fecha_mov))\
+                    .execute()
+                
+                cantidad_tickets = crm_data.data[0]['cantidad_tickets'] if crm_data.data else 0
+                ticket_promedio = (ventas_total / cantidad_tickets) if cantidad_tickets > 0 else 0.0
+            except:
+                cantidad_tickets = 0
+                ticket_promedio = 0.0
             
-            col1.metric("💰 Ventas", f"${ventas_total:,.2f}")
-            col2.metric("💸 Gastos", f"${gastos_total:,.2f}")
-            col3.metric("📊 Neto", f"${neto:,.2f}")
-            col4.metric("💵 Ventas Efectivo", f"${ventas_efectivo:,.2f}")
-            col5.metric("🏦 Efectivo Entregado", f"${efectivo_entregado:,.2f}")
+            # Métricas principales reorganizadas (6 columnas)
+            col1, col2, col3, col4, col5, col6 = st.columns(6)
+            
+            col1.metric("💳 Total Tarjetas", f"${total_tarjetas:,.2f}")
+            col2.metric("💸 Total de Gastos", f"${gastos_total:,.2f}")
+            col3.metric("🏦 Efectivo Entregado", f"${efectivo_entregado:,.2f}")
+            col4.metric("💰 Total Ventas", f"${ventas_total:,.2f}")
+            col5.metric("🎫 Tickets", f"{cantidad_tickets}")
+            col6.metric("💵 Ticket Promedio", f"${ticket_promedio:,.2f}")
             
             # Detalle del cálculo de efectivo
             with st.expander("💵 Detalle del Efectivo"):

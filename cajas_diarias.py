@@ -1072,7 +1072,7 @@ if tab6 is not None:
                 "columnas_ocultas": ["id"],
                 "columnas_editables": ["nombre", "tipo", "activa"]
             },
-            "metodos_pago": {
+            "medios_pago": {
                 "nombre": "💳 Métodos de Pago",
                 "descripcion": "Formas de pago disponibles",
                 "columnas_ocultas": ["id"],
@@ -1228,7 +1228,7 @@ if tab6 is not None:
                     nuevo_registro['tipo'] = st.selectbox("Tipo *", ["venta", "gasto"])
                     nuevo_registro['activa'] = st.checkbox("Activa", value=True)
                 
-                elif tabla_seleccionada == "metodos_pago":
+                elif tabla_seleccionada == "medios_pago":
                     nuevo_registro['nombre'] = st.text_input("Nombre del método *", placeholder="Ej: Tarjeta de Crédito")
                     nuevo_registro['tipo_aplicable'] = st.selectbox("Tipo aplicable *", ["venta", "gasto", "ambos"])
                     nuevo_registro['activo'] = st.checkbox("Activo", value=True)
@@ -1247,7 +1247,7 @@ if tab6 is not None:
                     # Cargar datos necesarios
                     sucursales_data = supabase.table("sucursales").select("id, nombre").execute()
                     categorias_data = supabase.table("categorias").select("id, nombre").execute()
-                    medios_data = supabase.table("metodos_pago").select("id, nombre").execute()
+                    medios_data = supabase.table("medios_pago").select("id, nombre").execute()
                     
                     if sucursales_data.data:
                         sucursal_options = {s['id']: s['nombre'] for s in sucursales_data.data}

@@ -1,4 +1,4 @@
-# cajas_diarias.py - VERSIÓN 5.1 CON AG GRID
+# cajas_diarias.py - VERSIÓN 5.0 OPTIMIZADA
 #
 # 🚀 MEJORAS DE PERFORMANCE IMPLEMENTADAS:
 # 
@@ -24,24 +24,10 @@
 #    - Para tablas movimientos_diarios y crm_datos_diarios
 #    - Facilita encontrar registros en bases de datos grandes
 #
-# 6. 🆕 AG GRID en Reportes (streamlit-aggrid)
-#    - Filtros tipo Excel en cada columna
-#    - Ordenar con click en header
-#    - Búsqueda en tiempo real
-#    - Paginación automática
-#    - Sidebar con opciones avanzadas
-#    - Exportar datos filtrados
-#
-# REQUERIMIENTOS ADICIONALES:
-# - streamlit-aggrid: pip install streamlit-aggrid
-#
 import streamlit as st
 import pandas as pd
 from datetime import date, datetime
 import os
-
-# AG Grid para tablas con filtros tipo Excel
-from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode, JsCode
 
 # Intentar cargar dotenv solo si existe
 try:
@@ -145,108 +131,6 @@ def obtener_medios_pago(tipo):
     except Exception as e:
         st.error(f"Error obteniendo medios de pago: {e}")
         return []
-
-def configurar_aggrid(df, height=500, selection_mode=None, pagination=True, page_size=100, filtros_avanzados=True):
-    """
-    🔍 Configura AG Grid con filtros tipo Excel y todas las funcionalidades
-    
-    Parámetros:
-    - df: DataFrame a mostrar
-    - height: Altura de la tabla en píxeles
-    - selection_mode: 'single', 'multiple' o None
-    - pagination: True/False para habilitar paginación
-    - page_size: Registros por página
-    - filtros_avanzados: True para filtros avanzados en todas las columnas
-    
-    Returns:
-    - grid_response: Respuesta de AG Grid con datos y filas seleccionadas
-    """
-    
-    gb = GridOptionsBuilder.from_dataframe(df)
-    
-    # Configuración de columnas por defecto
-    gb.configure_default_column(
-        filterable=True,           # Filtros tipo Excel en todas las columnas
-        sortable=True,             # Ordenar con click en header
-        resizable=True,            # Redimensionar columnas
-        editable=False,            # No editable por defecto
-        groupable=False,
-        wrapText=True,
-        autoHeight=False
-    )
-    
-    # Detectar y configurar columnas según tipo
-    for col in df.columns:
-        col_dtype = df[col].dtype
-        
-        # Columnas numéricas (sin formato de moneda)
-        if pd.api.types.is_numeric_dtype(col_dtype):
-            gb.configure_column(
-                col,
-                type=["numericColumn", "numberColumnFilter"],
-                precision=2
-            )
-        
-        # Columnas de fecha
-        elif pd.api.types.is_datetime64_any_dtype(col_dtype) or 'fecha' in col.lower():
-            gb.configure_column(
-                col,
-                type=["dateColumnFilter"]
-            )
-        
-        # Columnas de texto
-        else:
-            gb.configure_column(
-                col,
-                filter="agSetColumnFilter" if filtros_avanzados else "agTextColumnFilter"
-            )
-    
-    # Configurar selección si se especifica
-    if selection_mode:
-        gb.configure_selection(
-            selection_mode=selection_mode,
-            use_checkbox=True,
-            pre_selected_rows=[]
-        )
-    
-    # Configurar paginación
-    if pagination:
-        gb.configure_pagination(
-            enabled=True,
-            paginationPageSize=page_size,
-            paginationAutoPageSize=False
-        )
-    
-    # Sidebar con opciones de filtros y columnas
-    gb.configure_side_bar(
-        filters_panel=True,
-        columns_panel=True,
-        defaultToolPanel=""
-    )
-    
-    # Otras configuraciones útiles
-    gb.configure_grid_options(
-        enableRangeSelection=True,
-        copyHeadersToClipboard=True,
-        suppressRowClickSelection=True if selection_mode else False
-    )
-    
-    gridOptions = gb.build()
-    
-    # Renderizar AG Grid
-    grid_response = AgGrid(
-        df,
-        gridOptions=gridOptions,
-        update_mode=GridUpdateMode.SELECTION_CHANGED if selection_mode else GridUpdateMode.NO_UPDATE,
-        fit_columns_on_grid_load=False,
-        theme='streamlit',  # Tema: 'streamlit', 'alpine', 'balham', 'material'
-        height=height,
-        allow_unsafe_jscode=True,
-        enable_enterprise_modules=False,
-        reload_data=False
-    )
-    
-    return grid_response
 
 # ==================== CARGAR DATOS ====================
 
@@ -613,39 +497,19 @@ if tab3 is not None:
                         
                         st.markdown("---")
                         
-                        # Tabla resumen por sucursal con AG Grid
+                        # Tabla resumen por sucursal
                         if todas_sucursales:
                             st.markdown("### 🏪 Resumen por Sucursal")
-                            st.caption("💡 Filtros disponibles en cada columna - Click en ☰ para filtrar")
                             
                             resumen = df.groupby(['sucursal_nombre', 'tipo'])['monto'].sum().unstack(fill_value=0)
-                            
-                            # Calcular neto si existen ambas columnas
                             if 'venta' in resumen.columns and 'gasto' in resumen.columns:
                                 resumen['neto'] = resumen['venta'] - resumen['gasto']
                             
-                            # Resetear índice para tener sucursal como columna
-                            resumen_grid = resumen.reset_index()
+                            resumen_display = resumen.copy()
+                            for col in resumen_display.columns:
+                                resumen_display[col] = resumen_display[col].apply(lambda x: f"${x:,.2f}")
                             
-                            # Renombrar columnas
-                            column_rename = {'sucursal_nombre': 'Sucursal'}
-                            if 'venta' in resumen_grid.columns:
-                                column_rename['venta'] = 'Ventas'
-                            if 'gasto' in resumen_grid.columns:
-                                column_rename['gasto'] = 'Gastos'
-                            if 'neto' in resumen_grid.columns:
-                                column_rename['neto'] = 'Neto'
-                            
-                            resumen_grid.rename(columns=column_rename, inplace=True)
-                            
-                            # Mostrar con AG Grid
-                            grid_response_resumen = configurar_aggrid(
-                                resumen_grid,
-                                height=400,
-                                selection_mode=None,
-                                pagination=False,
-                                filtros_avanzados=True
-                            )
+                            st.dataframe(resumen_display, use_container_width=True)
                             
                             st.markdown("---")
                         
@@ -668,67 +532,24 @@ if tab3 is not None:
                         
                         st.markdown("---")
                         
-                        # Detalle completo con AG Grid
+                        # Detalle completo
                         st.markdown("### 📋 Detalle de Movimientos")
-                        st.caption("💡 **Filtros tipo Excel:** Click en los íconos ☰ de cada columna para filtrar los datos. Puedes ordenar haciendo click en los encabezados.")
                         
-                        # Preparar dataframe para AG Grid
-                        df_detalle = df[['fecha', 'sucursal_nombre', 'tipo', 'categoria_nombre', 'concepto', 'monto', 'medio_pago_nombre', 'usuario']].copy()
+                        df_detalle = df[['fecha', 'sucursal_nombre', 'tipo', 'categoria_nombre', 'concepto', 'monto', 'medio_pago_nombre']].copy()
                         df_detalle['concepto'] = df_detalle['concepto'].fillna('Sin detalle')
+                        df_detalle['monto'] = df_detalle['monto'].apply(lambda x: f"${x:,.2f}")
+                        df_detalle.columns = ['Fecha', 'Sucursal', 'Tipo', 'Categoría', 'Concepto', 'Monto', 'Medio Pago']
                         
-                        # Formatear fecha para mejor visualización
-                        df_detalle['fecha'] = pd.to_datetime(df_detalle['fecha']).dt.strftime('%d/%m/%Y')
+                        st.dataframe(df_detalle, use_container_width=True, hide_index=True)
                         
-                        # NO formatear monto como string para mantener capacidad de filtros numéricos
-                        # df_detalle['monto'] mantiene valor numérico
-                        
-                        # Renombrar columnas
-                        df_detalle.columns = ['Fecha', 'Sucursal', 'Tipo', 'Categoría', 'Concepto', 'Monto', 'Medio Pago', 'Usuario']
-                        
-                        # Configurar y mostrar AG Grid
-                        grid_response = configurar_aggrid(
-                            df_detalle,
-                            height=600,
-                            selection_mode=None,
-                            pagination=True,
-                            page_size=100,
-                            filtros_avanzados=True
+                        # Botón para descargar CSV
+                        csv = df[['fecha', 'sucursal_nombre', 'tipo', 'categoria_nombre', 'concepto', 'monto', 'medio_pago_nombre']].to_csv(index=False)
+                        st.download_button(
+                            label="⬇️ Descargar CSV",
+                            data=csv,
+                            file_name=f"reporte_{fecha_desde}_{fecha_hasta}.csv",
+                            mime="text/csv"
                         )
-                        
-                        # Mostrar estadísticas de registros
-                        total_registros = len(df_detalle)
-                        st.info(f"📊 Total de registros: **{total_registros:,}** movimientos | 💰 Total en tabla: **${df_detalle['Monto'].sum():,.2f}**")
-                        
-                        st.markdown("---")
-                        
-                        # Botón para descargar CSV completo
-                        st.markdown("### ⬇️ Exportar Datos")
-                        
-                        col_download1, col_download2 = st.columns(2)
-                        
-                        with col_download1:
-                            # CSV con formato original (montos sin formato)
-                            csv = df[['fecha', 'sucursal_nombre', 'tipo', 'categoria_nombre', 'concepto', 'monto', 'medio_pago_nombre', 'usuario']].to_csv(index=False)
-                            st.download_button(
-                                label="📄 Descargar CSV (datos crudos)",
-                                data=csv,
-                                file_name=f"reporte_{fecha_desde}_{fecha_hasta}.csv",
-                                mime="text/csv",
-                                use_container_width=True
-                            )
-                        
-                        with col_download2:
-                            # CSV con montos formateados
-                            df_export = df[['fecha', 'sucursal_nombre', 'tipo', 'categoria_nombre', 'concepto', 'monto', 'medio_pago_nombre', 'usuario']].copy()
-                            df_export['monto'] = df_export['monto'].apply(lambda x: f"${x:,.2f}")
-                            csv_formatted = df_export.to_csv(index=False)
-                            st.download_button(
-                                label="📄 Descargar CSV (formateado)",
-                                data=csv_formatted,
-                                file_name=f"reporte_formateado_{fecha_desde}_{fecha_hasta}.csv",
-                                mime="text/csv",
-                                use_container_width=True
-                            )
                         
                     else:
                         st.warning("⚠️ No hay datos para el período seleccionado")

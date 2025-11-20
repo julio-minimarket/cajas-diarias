@@ -392,6 +392,18 @@ with tab2:
                 cantidad_tickets = 0
                 ticket_promedio = 0.0
             
+            # CSS personalizado para reducir tamaño de métricas
+            st.markdown("""
+                <style>
+                    [data-testid="stMetricValue"] {
+                        font-size: 1.3rem !important;
+                    }
+                    [data-testid="stMetricLabel"] {
+                        font-size: 0.9rem !important;
+                    }
+                </style>
+            """, unsafe_allow_html=True)
+            
             # Métricas principales reorganizadas (6 columnas)
             col1, col2, col3, col4, col5, col6 = st.columns(6)
             
@@ -414,22 +426,79 @@ with tab2:
                     st.metric("(=) Efectivo Entregado", f"${efectivo_entregado:,.2f}")
                 
                 st.markdown("---")
-                st.write("**Resumen por Medio de Pago:**")
+                st.write("**Resumen por Medio de Pago (Agrupado):**")
                 if len(df_ventas) > 0:
-                    medios_resumen = df_ventas.groupby('medio_pago_nombre')['monto'].sum().reset_index()
-                    medios_resumen.columns = ['Medio de Pago', 'Monto']
-                    medios_resumen['Monto'] = medios_resumen['Monto'].apply(lambda x: f"${x:,.2f}")
-                    st.dataframe(medios_resumen, use_container_width=True, hide_index=True)
+                    # Agrupar medios de pago en 3 categorías
+                    ventas_efectivo_monto = df_ventas[df_ventas['medio_pago_nombre'] == 'Efectivo']['monto'].sum()
+                    ventas_pedidoya_monto = df_ventas[df_ventas['medio_pago_nombre'] == 'Tarjeta Pedido Ya']['monto'].sum()
+                    
+                    # Medios Electrónicos = Todo lo que NO es Efectivo ni Tarjeta Pedido Ya
+                    medios_electronicos_df = df_ventas[
+                        (~df_ventas['medio_pago_nombre'].isin(['Efectivo', 'Tarjeta Pedido Ya']))
+                    ]
+                    ventas_electronicos_monto = medios_electronicos_df['monto'].sum()
+                    
+                    # Crear DataFrame de resumen agrupado
+                    resumen_agrupado = pd.DataFrame({
+                        'Grupo': ['1. Ventas Efectivo', '2. Tarjeta Pedido Ya', '3. Medios Electrónicos'],
+                        'Monto': [ventas_efectivo_monto, ventas_pedidoya_monto, ventas_electronicos_monto]
+                    })
+                    resumen_agrupado['Monto Formato'] = resumen_agrupado['Monto'].apply(lambda x: f"${x:,.2f}")
+                    
+                    # Mostrar resumen agrupado
+                    st.dataframe(
+                        resumen_agrupado[['Grupo', 'Monto Formato']].rename(columns={'Monto Formato': 'Monto'}),
+                        use_container_width=True,
+                        hide_index=True
+                    )
+                    
+                    # Expandir para ver detalle de Medios Electrónicos
+                    if ventas_electronicos_monto > 0:
+                        with st.expander("📋 Ver detalle de Medios Electrónicos"):
+                            detalle_electronicos = medios_electronicos_df.groupby('medio_pago_nombre')['monto'].sum().reset_index()
+                            detalle_electronicos.columns = ['Medio de Pago', 'Monto']
+                            detalle_electronicos['Monto'] = detalle_electronicos['Monto'].apply(lambda x: f"${x:,.2f}")
+                            st.dataframe(detalle_electronicos, use_container_width=True, hide_index=True)
             
             st.markdown("---")
+            st.subheader("📋 Detalle de Movimientos")
             
-            # Tabla de movimientos
-            df_display = df[['tipo', 'categoria_nombre', 'concepto', 'monto', 'medio_pago_nombre', 'usuario']].copy()
-            df_display['concepto'] = df_display['concepto'].fillna('Sin detalle')
-            df_display['monto'] = df_display['monto'].apply(lambda x: f"${x:,.2f}")
-            df_display.columns = ['Tipo', 'Categoría', 'Concepto', 'Monto', 'Medio Pago', 'Usuario']
+            # Crear dos secciones: Ventas y Gastos
+            if len(df_ventas) > 0:
+                st.markdown("#### 💰 VENTAS")
+                df_ventas_display = df_ventas[['categoria_nombre', 'concepto', 'monto', 'medio_pago_nombre', 'usuario']].copy()
+                df_ventas_display['concepto'] = df_ventas_display['concepto'].fillna('Sin detalle')
+                
+                # Guardar montos originales para el total
+                montos_ventas = df_ventas_display['monto'].copy()
+                
+                # Formatear montos
+                df_ventas_display['monto'] = df_ventas_display['monto'].apply(lambda x: f"${x:,.2f}")
+                df_ventas_display.columns = ['Categoría', 'Concepto', 'Monto', 'Medio Pago', 'Usuario']
+                
+                st.dataframe(df_ventas_display, use_container_width=True, hide_index=True)
+                
+                # Total de ventas
+                st.markdown(f"**TOTAL VENTAS: ${montos_ventas.sum():,.2f}**")
+                st.markdown("---")
             
-            st.dataframe(df_display, use_container_width=True, hide_index=True)
+            if len(df_gastos) > 0:
+                st.markdown("#### 💸 GASTOS")
+                df_gastos_display = df_gastos[['categoria_nombre', 'concepto', 'monto', 'medio_pago_nombre', 'usuario']].copy()
+                df_gastos_display['concepto'] = df_gastos_display['concepto'].fillna('Sin detalle')
+                
+                # Guardar montos originales para el total
+                montos_gastos = df_gastos_display['monto'].copy()
+                
+                # Formatear montos
+                df_gastos_display['monto'] = df_gastos_display['monto'].apply(lambda x: f"${x:,.2f}")
+                df_gastos_display.columns = ['Categoría', 'Concepto', 'Monto', 'Medio Pago', 'Usuario']
+                
+                st.dataframe(df_gastos_display, use_container_width=True, hide_index=True)
+                
+                # Total de gastos
+                st.markdown(f"**TOTAL GASTOS: ${montos_gastos.sum():,.2f}**")
+                st.markdown("---")
             
             # Gráficos
             col1, col2 = st.columns(2)

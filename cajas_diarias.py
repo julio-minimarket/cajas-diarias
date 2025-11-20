@@ -1114,13 +1114,101 @@ if tab6 is not None:
         # ==================== VER/EDITAR ====================
         with tab_ver:
             st.markdown("### 👁️ Ver y Editar Registros")
+            
+            # ========== PANEL DE FILTROS (solo para tablas específicas) ==========
+            if tabla_seleccionada in ["movimientos_diarios", "crm_datos_diarios"]:
+                with st.expander("🔍 **Filtros de Búsqueda**", expanded=True):
+                    col_filtro1, col_filtro2, col_filtro3 = st.columns([2, 1, 1])
+                    
+                    with col_filtro1:
+                        # Cargar sucursales para el filtro
+                        sucursales_filtro = supabase.table("sucursales")\
+                            .select("id, nombre")\
+                            .eq("activa", True)\
+                            .order("nombre")\
+                            .execute()
+                        
+                        sucursal_opciones = {s['id']: s['nombre'] for s in sucursales_filtro.data}
+                        
+                        sucursal_filtro = st.selectbox(
+                            "🏪 Seleccionar Sucursal",
+                            options=[None] + list(sucursal_opciones.keys()),
+                            format_func=lambda x: "Todas las sucursales" if x is None else sucursal_opciones[x],
+                            key="filtro_sucursal"
+                        )
+                    
+                    with col_filtro2:
+                        fecha_desde = st.date_input(
+                            "📅 Desde",
+                            value=None,
+                            key="filtro_fecha_desde",
+                            format="DD/MM/YYYY"
+                        )
+                    
+                    with col_filtro3:
+                        fecha_hasta = st.date_input(
+                            "📅 Hasta",
+                            value=None,
+                            key="filtro_fecha_hasta",
+                            format="DD/MM/YYYY"
+                        )
+                    
+                    # Botones de filtros
+                    col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 3])
+                    with col_btn1:
+                        aplicar_filtros = st.button("🔍 Aplicar Filtros", use_container_width=True, key="btn_aplicar")
+                    with col_btn2:
+                        if st.button("🔄 Limpiar Filtros", use_container_width=True, key="btn_limpiar"):
+                            st.session_state.filtro_sucursal = None
+                            st.session_state.filtro_fecha_desde = None
+                            st.session_state.filtro_fecha_hasta = None
+                            st.rerun()
+                    
+                    # Mostrar filtros activos
+                    if sucursal_filtro or fecha_desde or fecha_hasta:
+                        filtros_activos = []
+                        if sucursal_filtro:
+                            filtros_activos.append(f"🏪 {sucursal_opciones[sucursal_filtro]}")
+                        if fecha_desde:
+                            filtros_activos.append(f"📅 Desde: {fecha_desde.strftime('%d/%m/%Y')}")
+                        if fecha_hasta:
+                            filtros_activos.append(f"📅 Hasta: {fecha_hasta.strftime('%d/%m/%Y')}")
+                        
+                        st.info(f"**Filtros activos:** {' | '.join(filtros_activos)}")
+            
             st.markdown("Haz doble clic en una celda para editarla. Los cambios se guardan al presionar el botón.")
             
+            # ========== CARGAR DATOS CON O SIN FILTROS ==========
             try:
-                # Cargar datos de la tabla
-                result = supabase.table(tabla_seleccionada).select("*").execute()
+                # Construcción de la query base
+                query = supabase.table(tabla_seleccionada).select("*")
                 
-                if result.data:
+                # Aplicar filtros si es una tabla que los admite
+                if tabla_seleccionada in ["movimientos_diarios", "crm_datos_diarios"]:
+                    # Filtro de sucursal
+                    if sucursal_filtro:
+                        query = query.eq("sucursal_id", sucursal_filtro)
+                    
+                    # Filtro de fecha desde
+                    if fecha_desde:
+                        query = query.gte("fecha", fecha_desde.isoformat())
+                    
+                    # Filtro de fecha hasta
+                    if fecha_hasta:
+                        query = query.lte("fecha", fecha_hasta.isoformat())
+                    
+                    # Ordenar por fecha descendente
+                    query = query.order("fecha", desc=True)
+                
+                # Ejecutar query
+                result = query.execute()
+                
+                if not result.data:
+                    if tabla_seleccionada in ["movimientos_diarios", "crm_datos_diarios"]:
+                        st.warning("⚠️ No se encontraron registros con los filtros aplicados. Intenta ampliar el rango de fechas o cambiar de sucursal.")
+                    else:
+                        st.info("📭 No hay registros en esta tabla")
+                else:
                     df_original = pd.DataFrame(result.data)
                     
                     # Crear copia para edición
@@ -1132,6 +1220,9 @@ if tab6 is not None:
                         st.metric("📊 Total de registros", len(df_edit))
                     with col_info2:
                         st.metric("📝 Columnas", len(df_edit.columns))
+                    
+                    if tabla_seleccionada in ["movimientos_diarios", "crm_datos_diarios"]:
+                        st.caption("💡 Usa los filtros arriba para reducir la cantidad de registros y encontrar más fácilmente lo que buscas.")
                     
                     st.markdown("---")
                     
@@ -1198,18 +1289,12 @@ if tab6 is not None:
                                     st.error(f"❌ Error al guardar: {str(e)}")
                         
                         with col_btn2:
-                            if st.button("↩️ Cancelar Cambios", use_container_width=True):
+                            if st.button("🔄 Cancelar", use_container_width=True):
                                 st.rerun()
-                    else:
-                        st.success("✅ No hay cambios pendientes")
-                
-                else:
-                    st.info("📭 No hay registros en esta tabla")
             
             except Exception as e:
                 st.error(f"❌ Error al cargar datos: {str(e)}")
-        
-        # ==================== AGREGAR ====================
+
         with tab_agregar:
             st.markdown("### ➕ Agregar Nuevo Registro")
             st.markdown("Completa los campos y presiona el botón para agregar un nuevo registro.")

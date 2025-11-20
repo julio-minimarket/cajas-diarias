@@ -1333,9 +1333,6 @@ if tab6 is not None:
                                 st.rerun()
                     else:
                         st.info("✅ No hay cambios pendientes")
-                
-                else:
-                    st.info("📭 No hay registros en esta tabla")
             
             except Exception as e:
                 st.error(f"❌ Error al cargar datos: {str(e)}")

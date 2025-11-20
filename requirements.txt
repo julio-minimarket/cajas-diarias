@@ -1,16 +1,5 @@
-# Requirements para Cajas Diarias v5.1 con AG Grid
-
-# Framework principal
 streamlit>=1.27.0
-
-# AG Grid para tablas con filtros tipo Excel
 streamlit-aggrid>=0.3.4
-
-# Procesamiento de datos
 pandas>=1.5.0
-
-# Base de datos
 supabase>=2.0.0
-
-# Variables de entorno (desarrollo local)
 python-dotenv>=1.0.0

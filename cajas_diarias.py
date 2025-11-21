@@ -497,21 +497,31 @@ if tab3 is not None:
     with tab3:
         st.subheader("📈 Generar Reportes")
         
-        col1, col2, col3 = st.columns(3)
+        # Crear tabs para diferentes tipos de reportes
+        tab_reporte_general, tab_reporte_gastos = st.tabs([
+            "📊 Reporte General",
+            "💸 Reporte de Gastos Mensual"
+        ])
         
-        with col1:
-            fecha_desde = st.date_input("Desde", value=date.today().replace(day=1), key="reporte_desde")
-        
-        with col2:
-            fecha_hasta = st.date_input("Hasta", value=date.today(), key="reporte_hasta")
-        
-        with col3:
-            st.write("")
-            # Solo admin puede ver todas las sucursales
-            if auth.is_admin():
-                todas_sucursales = st.checkbox("Todas las sucursales", value=False)
-            else:
-                todas_sucursales = False
+        # ==================== TAB: REPORTE GENERAL ====================
+        with tab_reporte_general:
+            st.markdown("### 📊 Reporte General de Movimientos")
+            
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                fecha_desde = st.date_input("Desde", value=date.today().replace(day=1), key="reporte_desde")
+            
+            with col2:
+                fecha_hasta = st.date_input("Hasta", value=date.today(), key="reporte_hasta")
+            
+            with col3:
+                st.write("")
+                # Solo admin puede ver todas las sucursales
+                if auth.is_admin():
+                    todas_sucursales = st.checkbox("Todas las sucursales", value=False)
+                else:
+                    todas_sucursales = False
         
         if st.button("📊 Generar Reporte", type="primary"):
             with st.spinner("Generando reporte..."):
@@ -607,6 +617,138 @@ if tab3 is not None:
                         
                 except Exception as e:
                     st.error(f"❌ Error generando reporte: {str(e)}")
+        
+        # ==================== TAB: REPORTE DE GASTOS MENSUAL ====================
+        with tab_reporte_gastos:
+            st.markdown("### 💸 Reporte de Gastos Mensual por Sucursal")
+            st.info("📋 Este reporte muestra el detalle de gastos por categoría para todas las sucursales en un mes específico")
+            
+            col_mes1, col_mes2 = st.columns(2)
+            
+            with col_mes1:
+                año_gastos = st.number_input(
+                    "Año",
+                    min_value=2020,
+                    max_value=2030,
+                    value=date.today().year,
+                    key="año_gastos"
+                )
+            
+            with col_mes2:
+                mes_gastos = st.selectbox(
+                    "Mes",
+                    options=list(range(1, 13)),
+                    format_func=lambda x: [
+                        "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+                        "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
+                    ][x-1],
+                    index=date.today().month - 1,
+                    key="mes_gastos"
+                )
+            
+            if st.button("📊 Generar Reporte de Gastos", type="primary", use_container_width=True):
+                with st.spinner("Generando reporte de gastos..."):
+                    try:
+                        # Calcular fechas del mes
+                        from calendar import monthrange
+                        ultimo_dia = monthrange(año_gastos, mes_gastos)[1]
+                        fecha_desde_gastos = date(año_gastos, mes_gastos, 1)
+                        fecha_hasta_gastos = date(año_gastos, mes_gastos, ultimo_dia)
+                        
+                        # Consultar gastos del mes para todas las sucursales
+                        result = supabase.table("movimientos_diarios")\
+                            .select("*, sucursales(nombre), categorias(nombre), medios_pago(nombre)")\
+                            .eq("tipo", "gasto")\
+                            .gte("fecha", str(fecha_desde_gastos))\
+                            .lte("fecha", str(fecha_hasta_gastos))\
+                            .order("sucursal_id")\
+                            .order("categoria_id")\
+                            .execute()
+                        
+                        if result.data:
+                            df_gastos = pd.DataFrame(result.data)
+                            
+                            # Extraer nombres
+                            df_gastos['sucursal_nombre'] = df_gastos['sucursales'].apply(lambda x: x['nombre'] if x else 'N/A')
+                            df_gastos['categoria_nombre'] = df_gastos['categorias'].apply(lambda x: x['nombre'] if x else 'Sin categoría')
+                            df_gastos['medio_pago_nombre'] = df_gastos['medios_pago'].apply(lambda x: x['nombre'] if x else 'Sin medio')
+                            
+                            mes_nombre = [
+                                "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+                                "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
+                            ][mes_gastos-1]
+                            
+                            st.markdown(f"#### 📊 Gastos de {mes_nombre} {año_gastos}")
+                            
+                            # Total general
+                            total_general = df_gastos['monto'].sum()
+                            st.metric("💸 Total de Gastos del Mes", f"${total_general:,.2f}")
+                            
+                            st.markdown("---")
+                            
+                            # Agrupar por sucursal
+                            for sucursal in df_gastos['sucursal_nombre'].unique():
+                                df_suc = df_gastos[df_gastos['sucursal_nombre'] == sucursal]
+                                total_sucursal = df_suc['monto'].sum()
+                                
+                                st.markdown(f"### 🏪 {sucursal}")
+                                st.markdown(f"**Total Sucursal: ${total_sucursal:,.2f}**")
+                                
+                                # Resumen por categoría
+                                resumen_categorias = df_suc.groupby('categoria_nombre')['monto'].sum().reset_index()
+                                resumen_categorias.columns = ['Categoría', 'Monto Total']
+                                resumen_categorias = resumen_categorias.sort_values('Monto Total', ascending=False)
+                                
+                                # Agregar columna de porcentaje
+                                resumen_categorias['% del Total'] = (resumen_categorias['Monto Total'] / total_sucursal * 100).round(2)
+                                
+                                # Formatear para mostrar
+                                resumen_display = resumen_categorias.copy()
+                                resumen_display['Monto Total'] = resumen_display['Monto Total'].apply(lambda x: f"${x:,.2f}")
+                                resumen_display['% del Total'] = resumen_display['% del Total'].apply(lambda x: f"{x:.2f}%")
+                                
+                                st.dataframe(resumen_display, use_container_width=True, hide_index=True)
+                                
+                                # Detalle expandible
+                                with st.expander(f"📋 Ver detalle de movimientos de {sucursal}"):
+                                    df_detalle_suc = df_suc[['fecha', 'categoria_nombre', 'concepto', 'monto', 'medio_pago_nombre', 'usuario']].copy()
+                                    df_detalle_suc['concepto'] = df_detalle_suc['concepto'].fillna('Sin detalle')
+                                    df_detalle_suc['monto_formato'] = df_detalle_suc['monto'].apply(lambda x: f"${x:,.2f}")
+                                    df_detalle_suc = df_detalle_suc[['fecha', 'categoria_nombre', 'concepto', 'monto_formato', 'medio_pago_nombre', 'usuario']]
+                                    df_detalle_suc.columns = ['Fecha', 'Categoría', 'Concepto', 'Monto', 'Medio Pago', 'Usuario']
+                                    st.dataframe(df_detalle_suc, use_container_width=True, hide_index=True)
+                                
+                                st.markdown("---")
+                            
+                            # Resumen consolidado por categoría
+                            st.markdown("### 📊 Resumen Consolidado por Categoría")
+                            resumen_consolidado = df_gastos.groupby('categoria_nombre')['monto'].sum().reset_index()
+                            resumen_consolidado.columns = ['Categoría', 'Monto Total']
+                            resumen_consolidado = resumen_consolidado.sort_values('Monto Total', ascending=False)
+                            resumen_consolidado['% del Total'] = (resumen_consolidado['Monto Total'] / total_general * 100).round(2)
+                            
+                            # Formatear para mostrar
+                            resumen_consolidado_display = resumen_consolidado.copy()
+                            resumen_consolidado_display['Monto Total'] = resumen_consolidado_display['Monto Total'].apply(lambda x: f"${x:,.2f}")
+                            resumen_consolidado_display['% del Total'] = resumen_consolidado_display['% del Total'].apply(lambda x: f"{x:.2f}%")
+                            
+                            st.dataframe(resumen_consolidado_display, use_container_width=True, hide_index=True)
+                            
+                            # Botón para descargar CSV
+                            st.markdown("---")
+                            csv_gastos = df_gastos[['fecha', 'sucursal_nombre', 'categoria_nombre', 'concepto', 'monto', 'medio_pago_nombre', 'usuario']].to_csv(index=False)
+                            st.download_button(
+                                label="📥 Descargar Reporte Completo (CSV)",
+                                data=csv_gastos,
+                                file_name=f"reporte_gastos_{mes_nombre}_{año_gastos}.csv",
+                                mime="text/csv",
+                                use_container_width=True
+                            )
+                        else:
+                            st.warning(f"⚠️ No hay gastos registrados para {mes_nombre} {año_gastos}")
+                    
+                    except Exception as e:
+                        st.error(f"❌ Error generando reporte de gastos: {str(e)}")
 
 # ==================== TAB 4: CRM ====================
 # Solo mostrar CRM si el usuario es admin

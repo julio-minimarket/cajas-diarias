@@ -1,41 +1,25 @@
-# cajas_diarias.py - VERSIÓN 6.0 ULTRA-OPTIMIZADA
+# cajas_diarias.py - VERSIÓN 5.0 OPTIMIZADA
 #
-# 🚀 MEJORAS DE PERFORMANCE IMPLEMENTADAS EN V6.0:
+# 🚀 MEJORAS DE PERFORMANCE IMPLEMENTADAS:
 # 
-# 1. ✅ @st.cache_resource para conexión Supabase (V5.0)
+# 1. @st.cache_resource para conexión Supabase
 #    - La conexión se crea una sola vez y se reutiliza
 #    - Mejora de velocidad ~70%
 #
-# 2. ✅ @st.fragment implementado REALMENTE (V6.0 - NUEVO)
-#    - Recargas parciales en formularios y gráficos
+# 2. @st.fragment para recargas parciales (preparado para Streamlit 1.37+)
 #    - Solo recarga secciones específicas, no toda la página
-#    - UX similar a Next.js - MUCHO más rápido
+#    - UX similar a Next.js
 #
-# 3. ✅ BATCH FETCHING - Solución al Problema N+1 (V6.0 - CRÍTICO)
-#    - En Conciliación: 1 query en lugar de 20+ queries
-#    - En Reportes: Carga de datos CRM en bloque
-#    - Reduce tiempo de 5-10 segundos a <500ms
-#
-# 4. ✅ VECTORIZACIÓN con Pandas GroupBy (V6.0 - CRÍTICO)
-#    - Elimina bucles for en cálculos diarios
-#    - Usa operaciones vectorizadas (10-100x más rápido)
-#    - Reportes mensuales ahora en milisegundos
-#
-# 5. ✅ SELECCIÓN ESPECÍFICA DE COLUMNAS (V6.0 - NUEVO)
-#    - Solo trae las columnas necesarias
-#    - Reduce payload de red significativamente
-#    - Menos datos = más velocidad
-#
-# 6. ✅ Optimización de updates en mantenimiento (V5.0)
+# 3. Optimización de updates en mantenimiento
 #    - Código más eficiente para ediciones múltiples
 #    - Mejor manejo de errores
 #
-# 7. ✅ st.toast en lugar de st.success (V5.0)
+# 4. st.toast en lugar de st.success
 #    - Notificaciones flotantes elegantes
 #    - No ocupan espacio en pantalla
 #    - Desaparecen automáticamente
 #
-# 8. ✅ Filtros de búsqueda en mantenimiento (V5.0)
+# 5. Filtros de búsqueda en mantenimiento
 #    - Filtrado por sucursal y fecha
 #    - Para tablas movimientos_diarios y crm_datos_diarios
 #    - Facilita encontrar registros en bases de datos grandes
@@ -99,20 +83,12 @@ supabase: Client = init_supabase()
 st.title("💰 Sistema de Cajas Diarias")
 st.markdown("---")
 
-# ==================== FUNCIONES OPTIMIZADAS ====================
+# ==================== FUNCIONES ====================
 
 @st.cache_data(ttl=3600)
 def obtener_sucursales():
-    """
-    🚀 V6.0: Ahora solo selecciona las columnas necesarias
-    """
     try:
-        # Solo traemos las columnas que realmente necesitamos
-        result = supabase.table("sucursales")\
-            .select("id, nombre, codigo, activa")\
-            .eq("activa", True)\
-            .order("nombre")\
-            .execute()
+        result = supabase.table("sucursales").select("*").eq("activa", True).order("nombre").execute()
         if not result.data:
             st.warning("⚠️ No se encontraron sucursales activas en la base de datos")
         return result.data
@@ -123,12 +99,9 @@ def obtener_sucursales():
 
 @st.cache_data(ttl=3600)
 def obtener_categorias(tipo):
-    """
-    🚀 V6.0: Solo columnas necesarias
-    """
     try:
         result = supabase.table("categorias")\
-            .select("id, nombre, tipo, activa")\
+            .select("*")\
             .eq("tipo", tipo)\
             .eq("activa", True)\
             .execute()
@@ -140,13 +113,12 @@ def obtener_categorias(tipo):
 @st.cache_data(ttl=3600)
 def obtener_medios_pago(tipo):
     """
-    🚀 V6.0: Solo columnas necesarias
     Obtiene medios de pago según el tipo de movimiento
     tipo: 'venta', 'gasto', o 'ambos'
     """
     try:
         result = supabase.table("medios_pago")\
-            .select("id, nombre, tipo_aplicable, activo, orden")\
+            .select("*")\
             .eq("activo", True)\
             .or_(f"tipo_aplicable.eq.{tipo},tipo_aplicable.eq.ambos")\
             .order("orden")\
@@ -155,163 +127,6 @@ def obtener_medios_pago(tipo):
     except Exception as e:
         st.error(f"Error obteniendo medios de pago: {e}")
         return []
-
-# ==================== FUNCIONES BATCH FETCHING - V6.0 🚀 ====================
-
-def obtener_movimientos_batch(sucursales_ids, fecha_desde, fecha_hasta=None):
-    """
-    🚀 V6.0 - NUEVO: Batch fetching para movimientos
-    Trae todos los movimientos de múltiples sucursales en UNA SOLA query
-    Resuelve el problema N+1
-    
-    Args:
-        sucursales_ids: Lista de IDs de sucursales
-        fecha_desde: Fecha inicial
-        fecha_hasta: Fecha final (opcional, si es None usa fecha_desde)
-    
-    Returns:
-        DataFrame con los movimientos
-    """
-    if fecha_hasta is None:
-        fecha_hasta = fecha_desde
-    
-    try:
-        # UNA SOLA query para todas las sucursales
-        result = supabase.table("movimientos_diarios")\
-            .select("id, sucursal_id, fecha, tipo, monto, medio_pago_id, categoria_id, concepto, usuario, sucursales(nombre), categorias(nombre), medios_pago(nombre)")\
-            .in_("sucursal_id", sucursales_ids)\
-            .gte("fecha", str(fecha_desde))\
-            .lte("fecha", str(fecha_hasta))\
-            .execute()
-        
-        if result.data:
-            df = pd.DataFrame(result.data)
-            # Extraer nombres de relaciones
-            df['sucursal_nombre'] = df['sucursales'].apply(lambda x: x['nombre'] if x else 'N/A')
-            df['categoria_nombre'] = df['categorias'].apply(lambda x: x['nombre'] if x else 'Sin categoría')
-            df['medio_pago_nombre'] = df['medios_pago'].apply(lambda x: x['nombre'] if x else 'Sin medio')
-            return df
-        return pd.DataFrame()
-    
-    except Exception as e:
-        st.error(f"❌ Error en batch fetching de movimientos: {str(e)}")
-        return pd.DataFrame()
-
-def obtener_crm_batch(sucursales_ids, fecha_desde, fecha_hasta=None):
-    """
-    🚀 V6.0 - NUEVO: Batch fetching para datos CRM
-    Trae todos los datos CRM de múltiples sucursales en UNA SOLA query
-    Resuelve el problema N+1
-    
-    Args:
-        sucursales_ids: Lista de IDs de sucursales
-        fecha_desde: Fecha inicial
-        fecha_hasta: Fecha final (opcional, si es None usa fecha_desde)
-    
-    Returns:
-        DataFrame con los datos CRM
-    """
-    if fecha_hasta is None:
-        fecha_hasta = fecha_desde
-    
-    try:
-        # UNA SOLA query para todas las sucursales
-        result = supabase.table("crm_datos_diarios")\
-            .select("sucursal_id, fecha, total_ventas_crm, cantidad_tickets")\
-            .in_("sucursal_id", sucursales_ids)\
-            .gte("fecha", str(fecha_desde))\
-            .lte("fecha", str(fecha_hasta))\
-            .execute()
-        
-        if result.data:
-            return pd.DataFrame(result.data)
-        return pd.DataFrame()
-    
-    except Exception as e:
-        st.error(f"❌ Error en batch fetching de CRM: {str(e)}")
-        return pd.DataFrame()
-
-# ==================== FUNCIONES VECTORIZADAS - V6.0 🚀 ====================
-
-def calcular_resumen_diario_vectorizado(df_movimientos, df_crm, todas_sucursales=False):
-    """
-    🚀 V6.0 - NUEVO: Cálculo vectorizado de resumen diario
-    Reemplaza los bucles for por operaciones vectorizadas de Pandas
-    Es 10-100x más rápido que iterar con for
-    
-    Args:
-        df_movimientos: DataFrame con los movimientos
-        df_crm: DataFrame con datos CRM
-        todas_sucursales: Si es True, agrupa por sucursal también
-    
-    Returns:
-        DataFrame con resumen diario
-    """
-    if df_movimientos.empty:
-        return pd.DataFrame()
-    
-    # Crear columnas calculadas de una vez
-    df_movimientos['es_efectivo'] = df_movimientos['medio_pago_nombre'] == 'Efectivo'
-    df_movimientos['es_venta'] = df_movimientos['tipo'] == 'venta'
-    df_movimientos['es_gasto'] = df_movimientos['tipo'] == 'gasto'
-    
-    # Operaciones vectorizadas - mucho más rápido que bucles
-    if todas_sucursales:
-        # Agrupar por fecha Y sucursal
-        agg_dict = {
-            'monto': [
-                ('total_ventas', lambda x: x[df_movimientos.loc[x.index, 'es_venta']].sum()),
-                ('total_gastos', lambda x: x[df_movimientos.loc[x.index, 'es_gasto']].sum()),
-                ('ventas_efectivo', lambda x: x[(df_movimientos.loc[x.index, 'es_venta']) & (df_movimientos.loc[x.index, 'es_efectivo'])].sum())
-            ]
-        }
-        
-        resumen = df_movimientos.groupby(['fecha', 'sucursal_nombre']).agg(
-            total_ventas=('monto', lambda x: x[df_movimientos.loc[x.index, 'es_venta']].sum()),
-            total_gastos=('monto', lambda x: x[df_movimientos.loc[x.index, 'es_gasto']].sum()),
-            ventas_efectivo=('monto', lambda x: x[(df_movimientos.loc[x.index, 'es_venta']) & (df_movimientos.loc[x.index, 'es_efectivo'])].sum())
-        ).reset_index()
-        
-        # Merge con CRM
-        if not df_crm.empty:
-            resumen = resumen.merge(
-                df_crm[['fecha', 'sucursal_id', 'cantidad_tickets']],
-                left_on=['fecha', 'sucursal_nombre'],
-                right_on=['fecha', 'sucursal_id'],
-                how='left'
-            )
-    else:
-        # Solo por fecha
-        resumen = df_movimientos.groupby('fecha').agg(
-            total_ventas=('monto', lambda x: x[df_movimientos.loc[x.index, 'es_venta']].sum()),
-            total_gastos=('monto', lambda x: x[df_movimientos.loc[x.index, 'es_gasto']].sum()),
-            ventas_efectivo=('monto', lambda x: x[(df_movimientos.loc[x.index, 'es_venta']) & (df_movimientos.loc[x.index, 'es_efectivo'])].sum())
-        ).reset_index()
-        
-        # Merge con CRM
-        if not df_crm.empty:
-            resumen = resumen.merge(
-                df_crm[['fecha', 'cantidad_tickets']],
-                on='fecha',
-                how='left'
-            )
-    
-    # Calcular campos derivados (vectorizado)
-    resumen['cantidad_tickets'] = resumen['cantidad_tickets'].fillna(0)
-    resumen['total_tarjetas'] = resumen['total_ventas'] - resumen['ventas_efectivo']
-    resumen['efectivo_entregado'] = resumen['ventas_efectivo'] - resumen['total_gastos']
-    resumen['ticket_promedio'] = resumen.apply(
-        lambda row: row['total_ventas'] / row['cantidad_tickets'] if row['cantidad_tickets'] > 0 else 0,
-        axis=1
-    )
-    
-    # Formatear fecha con día de la semana
-    resumen['fecha_dt'] = pd.to_datetime(resumen['fecha'])
-    dias_semana = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
-    resumen['dia_semana'] = resumen['fecha_dt'].dt.dayofweek.apply(lambda x: dias_semana[x])
-    resumen['fecha_formateada'] = resumen['fecha_dt'].dt.strftime('%d/%m/%Y') + ' (' + resumen['dia_semana'] + ')'
-    
-    return resumen
 
 # ==================== CARGAR DATOS ====================
 
@@ -356,485 +171,435 @@ if st.session_state.get('mostrar_cambio_pwd', False):
 if auth.is_admin():
     # Admin ve todas las tabs incluyendo CRM, Conciliación y Mantenimiento
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-        "📥 Cargar Movimientos",
-        "📊 Dashboard",
-        "📈 Reportes",
+        "📝 Carga", 
+        "📊 Resumen del Día", 
+        "📈 Reportes", 
         "💼 CRM",
         "🔄 Conciliación Cajas",
         "🔧 Mantenimiento"
     ])
-elif auth.is_gerente():
-    # Gerente ve Dashboard, Reportes y CRM
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-        "📥 Cargar Movimientos",
-        "📊 Dashboard",
-        "📈 Reportes",
-        "💼 CRM",
-        "🔄 Conciliación Cajas",
-        "➖"  # Tab vacía que no se mostrará
-    ])
-    tab6 = None  # No hay mantenimiento para gerentes
 else:
-    # Usuario normal solo ve cargar movimientos y dashboard
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-        "📥 Cargar Movimientos",
-        "📊 Dashboard",
-        "➖",  # Tabs vacías
-        "➖",
-        "➖",
-        "➖"
-    ])
-    tab3 = tab4 = tab5 = tab6 = None  # No hay acceso a reportes, CRM, conciliación ni mantenimiento
+    # Encargados solo ven Carga y Resumen
+    tab1, tab2 = st.tabs(["📝 Carga", "📊 Resumen del Día"])
+    tab3 = None  # No hay tab de reportes para encargados
+    tab4 = None  # No hay tab de CRM para encargados
+    tab5 = None  # No hay tab de conciliación para encargados
+    tab6 = None  # No hay tab de mantenimiento para encargados
 
-# ==================== TAB 1: CARGAR MOVIMIENTOS ====================
+# ==================== TAB 1: CARGA ====================
 with tab1:
-    st.subheader(f"📥 Cargar Movimientos - {sucursal_seleccionada['nombre']}")
+    st.subheader(f"Cargar movimiento - {sucursal_seleccionada['nombre']}")
     
-    # Crear tabs para ventas y gastos
-    tab_ventas, tab_gastos, tab_planilla = st.tabs(["💰 Ventas", "💸 Gastos", "📋 Planilla de Sueldos"])
+    tipo = st.radio("Tipo de movimiento", ["Venta", "Gasto", "Sueldos"], horizontal=True)
     
-    # ==================== VENTAS ====================
-    @st.fragment
-    def formulario_ventas():
-        """
-        🚀 V6.0 - NUEVO: Usando @st.fragment
-        Este fragmento se recarga independientemente del resto de la página
-        """
-        with tab_ventas:
-            st.markdown("### 💰 Registrar Ventas del Día")
-            st.info("🔹 Ingresa las ventas separadas por método de pago")
-            
-            # Obtener medios de pago disponibles para ventas
-            medios_pago = obtener_medios_pago('venta')
-            
-            if not medios_pago:
-                st.warning("⚠️ No hay medios de pago configurados para ventas")
-                return
-            
-            # Crear formulario único para todas las ventas
-            with st.form("form_ventas", clear_on_submit=True):
-                st.markdown("#### 💳 Ingresa los montos por método de pago")
+    with st.form("form_movimiento", clear_on_submit=True):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # Si es "Sueldos", buscar automáticamente la categoría "Sueldos"
+            if tipo == "Sueldos":
+                categorias_data = obtener_categorias("gasto")
+                categoria_sueldos = [cat for cat in categorias_data if cat['nombre'] == 'Sueldos']
                 
-                # Diccionario para guardar los montos
-                ventas_dict = {}
+                if categoria_sueldos:
+                    categoria_seleccionada = categoria_sueldos[0]
+                    st.info(f"📂 Categoría: **{categoria_seleccionada['nombre']}**")
+                else:
+                    st.error("No se encontró la categoría 'Sueldos'")
+                    categoria_seleccionada = None
                 
-                # Crear un input por cada medio de pago
-                for medio in medios_pago:
-                    monto = st.number_input(
-                        f"{medio['nombre']}",
-                        min_value=0.0,
-                        value=0.0,
-                        step=0.01,
-                        format="%.2f",
-                        key=f"venta_{medio['id']}"
+                concepto = st.text_input("👤 Nombre del Empleado *")
+                
+            else:
+                categorias_data = obtener_categorias(tipo.lower())
+                
+                # FILTRAR "Sueldos" si es tipo "Gasto"
+                if tipo == "Gasto":
+                    categorias_data = [cat for cat in categorias_data if cat['nombre'] != 'Sueldos']
+                
+                if categorias_data:
+                    categoria_seleccionada = st.selectbox(
+                        "Categoría",
+                        options=categorias_data,
+                        format_func=lambda x: x['nombre']
                     )
-                    if monto > 0:
-                        ventas_dict[medio['id']] = {
-                            'monto': monto,
-                            'nombre': medio['nombre']
-                        }
+                else:
+                    st.error("No hay categorías disponibles")
+                    categoria_seleccionada = None
                 
-                submitted = st.form_submit_button("💾 Guardar Todas las Ventas", type="primary", use_container_width=True)
+                concepto = st.text_input("Concepto/Detalle (opcional)")
+        
+        with col2:
+            monto = st.number_input("Monto ($)", min_value=0.0, step=0.01, format="%.2f")
+            
+            # Medio de pago
+            if tipo in ["Sueldos", "Gasto"]:
+                # Para Sueldos y Gastos, buscar el medio "Efectivo"
+                medios_data = obtener_medios_pago("gasto")
+                medio_efectivo = [m for m in medios_data if m['nombre'] == 'Efectivo']
                 
-                if submitted:
-                    if not ventas_dict:
-                        st.warning("⚠️ Ingresa al menos un monto mayor a 0")
+                if medio_efectivo:
+                    medio_pago_seleccionado = medio_efectivo[0]
+                    st.info("💵 Medio de pago: **Efectivo** (automático)")
+                else:
+                    st.error("No se encontró el medio de pago 'Efectivo'")
+                    medio_pago_seleccionado = None
+            else:
+                # Solo para Ventas, mostrar selector desde BD
+                medios_data = obtener_medios_pago(tipo.lower())
+                
+                if medios_data:
+                    medio_pago_seleccionado = st.selectbox(
+                        "Medio de pago",
+                        options=medios_data,
+                        format_func=lambda x: x['nombre']
+                    )
+                else:
+                    st.error("No hay medios de pago disponibles")
+                    medio_pago_seleccionado = None
+        
+        submitted = st.form_submit_button("💾 Guardar", use_container_width=True, type="primary")
+        
+        if submitted:
+            # VALIDAR FECHA antes de guardar
+            puede_cargar, mensaje_error = auth.puede_cargar_fecha(fecha_mov, auth.get_user_role())
+            
+            if not puede_cargar:
+                st.error(mensaje_error)
+            else:
+                # Obtener nombre del usuario autenticado
+                usuario = st.session_state.user['nombre']
+                
+                # Validación según tipo
+                if tipo == "Sueldos":
+                    if not concepto or monto <= 0 or not categoria_seleccionada or not medio_pago_seleccionado:
+                        st.error("⚠️ Completa todos los campos. El nombre del empleado y el monto son obligatorios.")
                     else:
-                        # Guardar todas las ventas
+                        # Guardar sueldo
                         try:
-                            # Obtener la categoría "Ventas del día" para ventas
-                            categorias_venta = obtener_categorias('venta')
-                            categoria_ventas = next((c for c in categorias_venta if 'venta' in c['nombre'].lower()), None)
+                            data = {
+                                "sucursal_id": sucursal_seleccionada['id'],
+                                "fecha": str(fecha_mov),
+                                "tipo": "gasto",  # Sueldos se guardan como gastos
+                                "categoria_id": categoria_seleccionada['id'],
+                                "concepto": concepto,
+                                "monto": monto,
+                                "medio_pago_id": medio_pago_seleccionado['id'],
+                                "usuario": usuario
+                            }
                             
-                            if not categoria_ventas:
-                                st.error("❌ No se encontró la categoría de ventas. Contacta al administrador.")
-                                return
-                            
-                            # Preparar registros para inserción batch
-                            registros = []
-                            for medio_id, datos in ventas_dict.items():
-                                registro = {
-                                    "sucursal_id": sucursal_seleccionada['id'],
-                                    "fecha": str(fecha_mov),
-                                    "tipo": "venta",
-                                    "categoria_id": categoria_ventas['id'],
-                                    "concepto": f"Ventas en {datos['nombre']}",
-                                    "monto": datos['monto'],
-                                    "medio_pago_id": medio_id,
-                                    "usuario": st.session_state.user['nombre']
-                                }
-                                registros.append(registro)
-                            
-                            # Inserción batch (más eficiente)
-                            result = supabase.table("movimientos_diarios").insert(registros).execute()
+                            result = supabase.table("movimientos_diarios").insert(data).execute()
                             
                             if result.data:
-                                total_ventas = sum([v['monto'] for v in ventas_dict.values()])
-                                st.toast(f"✅ {len(ventas_dict)} ventas guardadas - Total: ${total_ventas:,.2f}", icon="✅")
-                                st.rerun()
+                                st.toast(f"✅ Sueldo de {concepto} guardado: ${monto:,.2f}", icon="✅")
+                                st.cache_data.clear()
                             else:
-                                st.error("❌ Error al guardar las ventas")
-                        
+                                st.error("Error al guardar el movimiento")
+                                
                         except Exception as e:
                             st.error(f"❌ Error: {str(e)}")
-    
-    formulario_ventas()
-    
-    # ==================== GASTOS ====================
-    @st.fragment
-    def formulario_gastos():
-        """
-        🚀 V6.0 - NUEVO: Usando @st.fragment
-        Este fragmento se recarga independientemente del resto de la página
-        """
-        with tab_gastos:
-            st.markdown("### 💸 Registrar Gastos del Día")
-            st.info("🔹 Registra los gastos operativos del día")
-            
-            # Obtener categorías y medios de pago
-            categorias_gastos = obtener_categorias('gasto')
-            medios_pago_gastos = obtener_medios_pago('gasto')
-            
-            if not categorias_gastos or not medios_pago_gastos:
-                st.warning("⚠️ Falta configuración de categorías o medios de pago")
-                return
-            
-            with st.form("form_gasto", clear_on_submit=True):
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    categoria_id = st.selectbox(
-                        "Categoría *",
-                        options=[c['id'] for c in categorias_gastos],
-                        format_func=lambda x: next(c['nombre'] for c in categorias_gastos if c['id'] == x)
-                    )
-                
-                with col2:
-                    medio_pago_id = st.selectbox(
-                        "Método de pago *",
-                        options=[m['id'] for m in medios_pago_gastos],
-                        format_func=lambda x: next(m['nombre'] for m in medios_pago_gastos if m['id'] == x)
-                    )
-                
-                concepto = st.text_input("Concepto / Detalle", placeholder="Ej: Compra de mercadería")
-                monto = st.number_input("Monto *", min_value=0.0, step=0.01, format="%.2f")
-                
-                submitted = st.form_submit_button("💾 Guardar Gasto", type="primary", use_container_width=True)
-                
-                if submitted:
-                    if monto <= 0:
-                        st.warning("⚠️ El monto debe ser mayor a 0")
+                else:
+                    # Validación para Venta y Gasto
+                    if monto <= 0 or not categoria_seleccionada or not medio_pago_seleccionado:
+                        st.error("⚠️ Completa todos los campos obligatorios")
                     else:
                         try:
                             data = {
                                 "sucursal_id": sucursal_seleccionada['id'],
                                 "fecha": str(fecha_mov),
-                                "tipo": "gasto",
-                                "categoria_id": categoria_id,
+                                "tipo": tipo.lower(),
+                                "categoria_id": categoria_seleccionada['id'],
                                 "concepto": concepto if concepto else None,
                                 "monto": monto,
-                                "medio_pago_id": medio_pago_id,
-                                "usuario": st.session_state.user['nombre']
+                                "medio_pago_id": medio_pago_seleccionado['id'],
+                                "usuario": usuario
                             }
                             
                             result = supabase.table("movimientos_diarios").insert(data).execute()
                             
                             if result.data:
-                                st.toast(f"✅ Gasto guardado: ${monto:,.2f}", icon="✅")
-                                st.rerun()
+                                st.toast(f"✅ {tipo} guardado: ${monto:,.2f}", icon="✅")
+                                st.cache_data.clear()
                             else:
-                                st.error("❌ Error al guardar el gasto")
-                        
+                                st.error("Error al guardar el movimiento")
+                                
                         except Exception as e:
                             st.error(f"❌ Error: {str(e)}")
-    
-    formulario_gastos()
-    
-    # ==================== PLANILLA DE SUELDOS ====================
-    @st.fragment
-    def formulario_sueldos():
-        """
-        🚀 V6.0 - NUEVO: Usando @st.fragment
-        Este fragmento se recarga independientemente del resto de la página
-        """
-        with tab_planilla:
-            st.markdown("### 📋 Planilla de Sueldos")
-            st.info("🔹 Registra los pagos de sueldos del día (solo se registran cuando se pagan)")
-            
-            # Obtener categorías y medios de pago
-            categorias_gastos = obtener_categorias('gasto')
-            categoria_sueldos = next((c for c in categorias_gastos if 'sueldo' in c['nombre'].lower() or 'salario' in c['nombre'].lower()), None)
-            
-            if not categoria_sueldos:
-                st.warning("⚠️ No hay categoría de sueldos configurada. Contacta al administrador.")
-                return
-            
-            medios_pago_gastos = obtener_medios_pago('gasto')
-            
-            with st.form("form_sueldo", clear_on_submit=True):
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    empleado = st.text_input("Nombre del Empleado *", placeholder="Ej: Juan Pérez")
-                
-                with col2:
-                    monto_sueldo = st.number_input("Monto *", min_value=0.0, step=0.01, format="%.2f")
-                
-                medio_pago_sueldo = st.selectbox(
-                    "Método de pago *",
-                    options=[m['id'] for m in medios_pago_gastos],
-                    format_func=lambda x: next(m['nombre'] for m in medios_pago_gastos if m['id'] == x)
-                )
-                
-                concepto_sueldo = st.text_area("Observaciones", placeholder="Ej: Sueldo mes de octubre, adelanto, etc.")
-                
-                submitted = st.form_submit_button("💾 Guardar Pago de Sueldo", type="primary", use_container_width=True)
-                
-                if submitted:
-                    if not empleado or monto_sueldo <= 0:
-                        st.warning("⚠️ Completa el nombre del empleado y el monto")
-                    else:
-                        try:
-                            concepto_final = f"Sueldo - {empleado}"
-                            if concepto_sueldo:
-                                concepto_final += f" ({concepto_sueldo})"
-                            
-                            data = {
-                                "sucursal_id": sucursal_seleccionada['id'],
-                                "fecha": str(fecha_mov),
-                                "tipo": "gasto",
-                                "categoria_id": categoria_sueldos['id'],
-                                "concepto": concepto_final,
-                                "monto": monto_sueldo,
-                                "medio_pago_id": medio_pago_sueldo,
-                                "usuario": st.session_state.user['nombre']
-                            }
-                            
-                            result = supabase.table("movimientos_diarios").insert(data).execute()
-                            
-                            if result.data:
-                                st.toast(f"✅ Sueldo guardado: {empleado} - ${monto_sueldo:,.2f}", icon="✅")
-                                st.rerun()
-                            else:
-                                st.error("❌ Error al guardar el sueldo")
-                        
-                        except Exception as e:
-                            st.error(f"❌ Error: {str(e)}")
-    
-    formulario_sueldos()
-    
-    # ==================== MOVIMIENTOS DEL DÍA ====================
-    st.markdown("---")
-    st.markdown("### 📋 Movimientos Registrados Hoy")
+
+# ==================== TAB 2: RESUMEN ====================
+with tab2:
+    st.subheader(f"📊 Resumen del {fecha_mov.strftime('%d/%m/%Y')} - {sucursal_seleccionada['nombre']}")
     
     try:
-        # Consultar movimientos del día actual
+        # Obtener movimientos del día
         result = supabase.table("movimientos_diarios")\
-            .select("id, tipo, monto, concepto, sucursales(nombre), categorias(nombre), medios_pago(nombre), usuario")\
+            .select("*, categorias(nombre), medios_pago(nombre)")\
             .eq("sucursal_id", sucursal_seleccionada['id'])\
             .eq("fecha", str(fecha_mov))\
-            .order("id", desc=True)\
             .execute()
         
         if result.data:
             df = pd.DataFrame(result.data)
             
-            # Extraer nombres de las relaciones
-            df['sucursal'] = df['sucursales'].apply(lambda x: x['nombre'] if x else 'N/A')
-            df['categoria'] = df['categorias'].apply(lambda x: x['nombre'] if x else 'N/A')
-            df['medio_pago'] = df['medios_pago'].apply(lambda x: x['nombre'] if x else 'N/A')
+            df['categoria_nombre'] = df['categorias'].apply(lambda x: x['nombre'] if x else 'Sin categoría')
+            df['medio_pago_nombre'] = df['medios_pago'].apply(lambda x: x['nombre'] if x else 'Sin medio')
             
-            # Formatear monto
-            df['monto_format'] = df.apply(
-                lambda row: f"${row['monto']:,.2f}" if row['tipo'] == 'venta' else f"-${row['monto']:,.2f}",
-                axis=1
-            )
+            # Separar ventas y gastos
+            df_ventas = df[df['tipo'] == 'venta']
+            df_gastos = df[df['tipo'] == 'gasto']
             
-            # Seleccionar columnas a mostrar
-            df_display = df[['tipo', 'categoria', 'concepto', 'monto_format', 'medio_pago', 'usuario']].copy()
-            df_display.columns = ['Tipo', 'Categoría', 'Concepto', 'Monto', 'Medio Pago', 'Usuario']
-            df_display['Concepto'] = df_display['Concepto'].fillna('Sin detalle')
+            # Totales
+            ventas_total = df_ventas['monto'].sum() if len(df_ventas) > 0 else 0.0
+            gastos_total = df_gastos['monto'].sum() if len(df_gastos) > 0 else 0.0
             
-            # Calcular totales
-            ventas_dia = df[df['tipo'] == 'venta']['monto'].sum()
-            gastos_dia = df[df['tipo'] == 'gasto']['monto'].sum()
-            neto_dia = ventas_dia - gastos_dia
+            # Ventas en efectivo específicamente
+            ventas_efectivo = df_ventas[df_ventas['medio_pago_nombre'] == 'Efectivo']['monto'].sum() if len(df_ventas) > 0 else 0.0
             
-            # Mostrar métricas
-            col1, col2, col3 = st.columns(3)
-            col1.metric("💰 Total Ventas", f"${ventas_dia:,.2f}")
-            col2.metric("💸 Total Gastos", f"${gastos_dia:,.2f}")
-            col3.metric("💵 Neto del Día", f"${neto_dia:,.2f}", delta=f"{neto_dia:,.2f}")
+            # Total Tarjetas = Total Ventas - Efectivo
+            total_tarjetas = ventas_total - ventas_efectivo
             
-            # Mostrar tabla
-            st.dataframe(df_display, use_container_width=True, hide_index=True)
+            # EFECTIVO ENTREGADO = Ventas en Efectivo - Total de Gastos
+            efectivo_entregado = ventas_efectivo - gastos_total
             
-            # Botón para eliminar movimiento (solo admin)
-            if auth.is_admin():
+            # Obtener datos del CRM para tickets
+            try:
+                crm_data = supabase.table("crm_datos_diarios")\
+                    .select("cantidad_tickets")\
+                    .eq("sucursal_id", sucursal_seleccionada['id'])\
+                    .eq("fecha", str(fecha_mov))\
+                    .execute()
+                
+                cantidad_tickets = crm_data.data[0]['cantidad_tickets'] if crm_data.data else 0
+                ticket_promedio = (ventas_total / cantidad_tickets) if cantidad_tickets > 0 else 0.0
+            except:
+                cantidad_tickets = 0
+                ticket_promedio = 0.0
+            
+            # CSS personalizado para reducir tamaño de métricas
+            st.markdown("""
+                <style>
+                    [data-testid="stMetricValue"] {
+                        font-size: 1.3rem !important;
+                    }
+                    [data-testid="stMetricLabel"] {
+                        font-size: 0.9rem !important;
+                    }
+                </style>
+            """, unsafe_allow_html=True)
+            
+            # Métricas principales reorganizadas (6 columnas)
+            col1, col2, col3, col4, col5, col6 = st.columns(6)
+            
+            col1.metric("💳 Total Tarjetas", f"${total_tarjetas:,.2f}")
+            col2.metric("💸 Total de Gastos", f"${gastos_total:,.2f}")
+            col3.metric("🏦 Efectivo Entregado", f"${efectivo_entregado:,.2f}")
+            col4.metric("💰 Total Ventas", f"${ventas_total:,.2f}")
+            col5.metric("🎫 Tickets", f"{cantidad_tickets}")
+            col6.metric("💵 Ticket Promedio", f"${ticket_promedio:,.2f}")
+            
+            # Detalle del cálculo de efectivo
+            with st.expander("💵 Detalle del Efectivo"):
+                st.write("**Cálculo: Ventas en Efectivo - Total de Gastos**")
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Ventas Efectivo", f"${ventas_efectivo:,.2f}")
+                with col2:
+                    st.metric("(-) Gastos", f"${gastos_total:,.2f}")
+                with col3:
+                    st.metric("(=) Efectivo Entregado", f"${efectivo_entregado:,.2f}")
+                
                 st.markdown("---")
-                with st.expander("🗑️ Eliminar Movimiento"):
-                    movimiento_a_eliminar = st.selectbox(
-                        "Selecciona el movimiento a eliminar",
-                        options=df['id'].tolist(),
-                        format_func=lambda x: f"ID {x}: {df[df['id']==x].iloc[0]['categoria']} - ${df[df['id']==x].iloc[0]['monto']:,.2f}"
+                st.write("**Resumen por Medio de Pago (Agrupado):**")
+                if len(df_ventas) > 0:
+                    # Agrupar medios de pago en 3 categorías
+                    ventas_efectivo_monto = df_ventas[df_ventas['medio_pago_nombre'] == 'Efectivo']['monto'].sum()
+                    ventas_pedidoya_monto = df_ventas[df_ventas['medio_pago_nombre'] == 'Tarjeta Pedidos Ya']['monto'].sum()
+                    
+                    # Medios Electrónicos = Todo lo que NO es Efectivo ni Tarjeta Pedidos Ya
+                    medios_electronicos_df = df_ventas[
+                        (~df_ventas['medio_pago_nombre'].isin(['Efectivo', 'Tarjeta Pedidos Ya']))
+                    ]
+                    ventas_electronicos_monto = medios_electronicos_df['monto'].sum()
+                    
+                    # Calcular total
+                    total_medios = ventas_efectivo_monto + ventas_pedidoya_monto + ventas_electronicos_monto
+                    
+                    # Crear DataFrame de resumen agrupado con total
+                    resumen_agrupado = pd.DataFrame({
+                        'Grupo': ['1. Ventas Efectivo', '2. Tarjeta Pedidos Ya', '3. Medios Electrónicos', 'TOTAL'],
+                        'Monto': [ventas_efectivo_monto, ventas_pedidoya_monto, ventas_electronicos_monto, total_medios]
+                    })
+                    resumen_agrupado['Monto Formato'] = resumen_agrupado['Monto'].apply(lambda x: f"${x:,.2f}")
+                    
+                    # Mostrar resumen agrupado
+                    st.dataframe(
+                        resumen_agrupado[['Grupo', 'Monto Formato']].rename(columns={'Monto Formato': 'Monto'}),
+                        use_container_width=True,
+                        hide_index=True
                     )
                     
-                    if st.button("🗑️ Confirmar Eliminación", type="secondary"):
-                        try:
-                            supabase.table("movimientos_diarios").delete().eq("id", movimiento_a_eliminar).execute()
-                            st.toast("✅ Movimiento eliminado", icon="✅")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"❌ Error al eliminar: {str(e)}")
+                    # Expandir para ver detalle de Medios Electrónicos
+                    if ventas_electronicos_monto > 0:
+                        with st.expander("📋 Ver detalle de Medios Electrónicos"):
+                            detalle_electronicos = medios_electronicos_df.groupby('medio_pago_nombre')['monto'].sum().reset_index()
+                            detalle_electronicos.columns = ['Medio de Pago', 'Monto']
+                            detalle_electronicos['Monto'] = detalle_electronicos['Monto'].apply(lambda x: f"${x:,.2f}")
+                            st.dataframe(detalle_electronicos, use_container_width=True, hide_index=True)
+            
+            st.markdown("---")
+            st.subheader("📋 Detalle de Movimientos")
+            
+            # Crear dos secciones: Ventas y Gastos
+            if len(df_ventas) > 0:
+                st.markdown("#### 💰 VENTAS")
+                df_ventas_display = df_ventas[['categoria_nombre', 'concepto', 'monto', 'medio_pago_nombre', 'usuario']].copy()
+                df_ventas_display['concepto'] = df_ventas_display['concepto'].fillna('Sin detalle')
+                
+                # Guardar montos originales para el total
+                montos_ventas = df_ventas_display['monto'].copy()
+                
+                # Formatear montos
+                df_ventas_display['monto'] = df_ventas_display['monto'].apply(lambda x: f"${x:,.2f}")
+                df_ventas_display.columns = ['Categoría', 'Concepto', 'Monto', 'Medio Pago', 'Usuario']
+                
+                st.dataframe(df_ventas_display, use_container_width=True, hide_index=True)
+                
+                # Total de ventas
+                st.markdown(f"**TOTAL VENTAS: ${montos_ventas.sum():,.2f}**")
+                st.markdown("---")
+            
+            if len(df_gastos) > 0:
+                st.markdown("#### 💸 GASTOS")
+                df_gastos_display = df_gastos[['categoria_nombre', 'concepto', 'monto', 'medio_pago_nombre', 'usuario']].copy()
+                df_gastos_display['concepto'] = df_gastos_display['concepto'].fillna('Sin detalle')
+                
+                # Guardar montos originales para el total
+                montos_gastos = df_gastos_display['monto'].copy()
+                
+                # Formatear montos
+                df_gastos_display['monto'] = df_gastos_display['monto'].apply(lambda x: f"${x:,.2f}")
+                df_gastos_display.columns = ['Categoría', 'Concepto', 'Monto', 'Medio Pago', 'Usuario']
+                
+                st.dataframe(df_gastos_display, use_container_width=True, hide_index=True)
+                
+                # Total de gastos
+                st.markdown(f"**TOTAL GASTOS: ${montos_gastos.sum():,.2f}**")
+                st.markdown("---")
         else:
-            st.info("📭 No hay movimientos registrados para hoy")
-    
+            st.info("📭 No hay movimientos cargados para esta fecha")
+            
     except Exception as e:
         st.error(f"❌ Error al cargar movimientos: {str(e)}")
 
-# ==================== TAB 2: DASHBOARD ====================
-with tab2:
-    st.subheader("📊 Dashboard - Resumen del Día")
-    
-    # Selector de fecha para dashboard
-    fecha_dashboard = st.date_input(
-        "Fecha a visualizar",
-        value=date.today(),
-        key="fecha_dashboard"
-    )
-    
-    try:
-        # 🚀 V6.0: Usar batch fetching en lugar de queries individuales
-        sucursales_ids = [sucursal_seleccionada['id']]
-        df_movimientos = obtener_movimientos_batch(sucursales_ids, fecha_dashboard)
-        df_crm = obtener_crm_batch(sucursales_ids, fecha_dashboard)
-        
-        if df_movimientos.empty:
-            st.info(f"📭 No hay movimientos registrados para el {fecha_dashboard.strftime('%d/%m/%Y')}")
-        else:
-            # Separar ventas y gastos
-            df_ventas = df_movimientos[df_movimientos['tipo'] == 'venta']
-            df_gastos = df_movimientos[df_movimientos['tipo'] == 'gasto']
-            
-            # Calcular totales
-            ventas_total = df_ventas['monto'].sum()
-            gastos_total = df_gastos['monto'].sum()
-            neto = ventas_total - gastos_total
-            
-            # Métricas principales
-            col1, col2, col3 = st.columns(3)
-            col1.metric("💰 Total Ventas", f"${ventas_total:,.2f}")
-            col2.metric("💸 Total Gastos", f"${gastos_total:,.2f}")
-            col3.metric("💵 Neto", f"${neto:,.2f}", delta=f"{neto:,.2f}")
-            
-            st.markdown("---")
-            
-            # ==================== LÓGICA DE CAJA ====================
-            st.markdown("### 💼 Resumen de Caja")
-            
-            # Calcular por medio de pago
-            if not df_ventas.empty:
-                # 🚀 V6.0: Usar groupby vectorizado
-                ventas_por_medio = df_ventas.groupby('medio_pago_nombre')['monto'].sum().to_dict()
-            else:
-                ventas_por_medio = {}
-            
-            # Efectivo en caja
-            efectivo_ventas = ventas_por_medio.get('Efectivo', 0.0)
-            efectivo_entregado = efectivo_ventas - gastos_total
-            
-            # Total en tarjetas/transferencias
-            total_tarjetas = ventas_total - efectivo_ventas
-            
-            # Mostrar métricas de caja
-            col1, col2, col3 = st.columns(3)
-            col1.metric("💵 Efectivo en Ventas", f"${efectivo_ventas:,.2f}")
-            col2.metric("💸 Gastos del Día", f"${gastos_total:,.2f}")
-            col3.metric("🏦 Efectivo a Entregar", f"${efectivo_entregado:,.2f}")
-            
-            st.markdown("---")
-            
-            # Desglose de ventas por medio de pago
-            if ventas_por_medio:
-                st.markdown("#### 💳 Ventas por Método de Pago")
-                
-                col_count = min(len(ventas_por_medio), 4)
-                cols = st.columns(col_count)
-                
-                for idx, (medio, monto) in enumerate(ventas_por_medio.items()):
-                    with cols[idx % col_count]:
-                        st.metric(medio, f"${monto:,.2f}")
-            
-            st.markdown("---")
-            
-            # Comparación con CRM si hay datos
-            if not df_crm.empty:
-                st.markdown("#### 📊 Comparación con CRM")
-                
-                crm_row = df_crm[df_crm['fecha'] == str(fecha_dashboard)].iloc[0] if not df_crm[df_crm['fecha'] == str(fecha_dashboard)].empty else None
-                
-                if crm_row is not None:
-                    total_crm = crm_row['total_ventas_crm']
-                    tickets_crm = crm_row['cantidad_tickets']
-                    
-                    diferencia = ventas_total - total_crm
-                    porcentaje_dif = (abs(diferencia) / total_crm * 100) if total_crm > 0 else 0
-                    
-                    col1, col2, col3, col4 = st.columns(4)
-                    col1.metric("💰 Sistema Cajas", f"${ventas_total:,.2f}")
-                    col2.metric("🖥️ Sistema CRM", f"${total_crm:,.2f}")
-                    col3.metric("📊 Diferencia", f"${diferencia:,.2f}", delta=f"{diferencia:,.2f}")
-                    col4.metric("🎫 Tickets", f"{tickets_crm}")
-                    
-                    # Estado de la conciliación
-                    if abs(diferencia) < 100:
-                        st.success("✅ Diferencia dentro del rango aceptable")
-                    elif abs(diferencia) < 500:
-                        st.warning(f"⚠️ Diferencia del {porcentaje_dif:.2f}% - Revisar")
-                    else:
-                        st.error(f"❌ Diferencia significativa del {porcentaje_dif:.2f}% - Revisar urgente")
-    
-    except Exception as e:
-        st.error(f"❌ Error al cargar dashboard: {str(e)}")
-
 # ==================== TAB 3: REPORTES ====================
-# Solo mostrar reportes si el usuario es admin o gerente
+# Solo mostrar reportes si el usuario es admin
 if tab3 is not None:
     with tab3:
-        st.subheader("📈 Reportes y Análisis")
+        st.subheader("📈 Generar Reportes")
         
         # Crear tabs para diferentes tipos de reportes
-        tab_general, tab_gastos = st.tabs(["📊 Reporte General", "💸 Reporte de Gastos"])
+        tab_reporte_general, tab_reporte_gastos = st.tabs([
+            "📊 Reporte General",
+            "💸 Reporte de Gastos Detallado"
+        ])
         
-        # ==================== REPORTE GENERAL ====================
-        with tab_general:
+        # ==================== TAB: REPORTE GENERAL ====================
+        with tab_reporte_general:
             st.markdown("### 📊 Reporte General de Movimientos")
-            st.info("Genera reportes completos de ventas y gastos para cualquier período")
             
-            # Selector de rango de fechas
+            # Primera fila: Fechas
             col1, col2 = st.columns(2)
-            with col1:
-                fecha_desde = st.date_input("Fecha desde", value=date.today(), key="fecha_desde_reporte")
-            with col2:
-                fecha_hasta = st.date_input("Fecha hasta", value=date.today(), key="fecha_hasta_reporte")
             
-            # Opciones de filtrado
-            todas_sucursales = st.checkbox("📋 Incluir todas las sucursales", value=False)
+            with col1:
+                fecha_desde = st.date_input("Desde", value=date.today().replace(day=1), key="reporte_desde")
+            
+            with col2:
+                fecha_hasta = st.date_input("Hasta", value=date.today(), key="reporte_hasta")
+            
+            # Segunda fila: Filtros de sucursal (solo para admin)
+            if auth.is_admin():
+                col3, col4 = st.columns(2)
+                
+                with col3:
+                    todas_sucursales = st.checkbox("Todas las sucursales", value=False, key="todas_suc_reporte")
+                
+                with col4:
+                    # Selector de Razón Social - SIEMPRE mostrar
+                    razones_opciones = ["Todas"]
+                    razon_seleccionada = "Todas"
+                    
+                    try:
+                        # Obtener razones sociales únicas
+                        razones_result = supabase.table("razon_social")\
+                            .select("razon_social")\
+                            .execute()
+                        
+                        if razones_result.data and len(razones_result.data) > 0:
+                            razones_unicas = sorted(list(set([r['razon_social'] for r in razones_result.data])))
+                            razones_opciones = ["Todas"] + razones_unicas
+                    except Exception as e:
+                        st.warning(f"⚠️ No se pudieron cargar las razones sociales: {str(e)}")
+                    
+                    # Mostrar selector SIEMPRE (incluso si falló la carga)
+                    razon_seleccionada = st.selectbox(
+                        "Razón Social",
+                        options=razones_opciones,
+                        key="razon_social_reporte",
+                        disabled=not todas_sucursales,
+                        help="Marca 'Todas las sucursales' para habilitar este filtro"
+                    )
+            else:
+                todas_sucursales = False
+                razon_seleccionada = "Todas"
+            
+            st.markdown("---")
             
             if st.button("📊 Generar Reporte", type="primary", use_container_width=True):
                 with st.spinner("Generando reporte..."):
                     try:
-                        # 🚀 V6.0: Usar batch fetching optimizado
+                        # Obtener IDs de sucursales según filtros
+                        sucursales_ids = []
+                        
                         if todas_sucursales:
-                            ids_consulta = [s['id'] for s in sucursales]
+                            if razon_seleccionada != "Todas":
+                                # Filtrar por razón social
+                                razon_suc_result = supabase.table("razon_social")\
+                                    .select("sucursal_id")\
+                                    .eq("razon_social", razon_seleccionada)\
+                                    .execute()
+                                
+                                if razon_suc_result.data:
+                                    sucursales_ids = [r['sucursal_id'] for r in razon_suc_result.data]
+                                else:
+                                    st.warning(f"No se encontraron sucursales para la razón social: {razon_seleccionada}")
+                                    sucursales_ids = []
+                            # Si es "Todas", no filtramos por sucursal_id (se consultan todas)
                         else:
-                            ids_consulta = [sucursal_seleccionada['id']]
+                            # Solo la sucursal seleccionada en el sidebar
+                            sucursales_ids = [sucursal_seleccionada['id']]
                         
-                        df = obtener_movimientos_batch(ids_consulta, fecha_desde, fecha_hasta)
+                        # Construir consulta
+                        query = supabase.table("movimientos_diarios")\
+                            .select("*, sucursales(nombre), categorias(nombre), medios_pago(nombre)")\
+                            .gte("fecha", str(fecha_desde))\
+                            .lte("fecha", str(fecha_hasta))
                         
-                        if df.empty:
-                            st.warning(f"⚠️ No hay movimientos para el período seleccionado")
-                        else:
+                        # Aplicar filtro de sucursales si corresponde
+                        if not todas_sucursales:
+                            query = query.eq("sucursal_id", sucursal_seleccionada['id'])
+                        elif razon_seleccionada != "Todas" and sucursales_ids:
+                            # Filtrar por las sucursales de la razón social seleccionada
+                            query = query.in_("sucursal_id", sucursales_ids)
+                        
+                        result = query.execute()
+                        
+                        if result.data:
+                            df = pd.DataFrame(result.data)
+                            
+                            df['sucursal_nombre'] = df['sucursales'].apply(lambda x: x['nombre'] if x else 'N/A')
+                            df['categoria_nombre'] = df['categorias'].apply(lambda x: x['nombre'] if x else 'Sin categoría')
+                            df['medio_pago_nombre'] = df['medios_pago'].apply(lambda x: x['nombre'] if x else 'Sin medio')
+                            
                             # Separar ventas y gastos
                             df_ventas = df[df['tipo'] == 'venta']
                             df_gastos = df[df['tipo'] == 'gasto']
@@ -852,13 +617,24 @@ if tab3 is not None:
                             # Efectivo Entregado
                             efectivo_entregado = ventas_efectivo - gastos_total
                             
-                            # 🚀 V6.0: Obtener tickets del CRM con batch fetching
-                            df_crm = obtener_crm_batch(ids_consulta, fecha_desde, fecha_hasta)
-                            
-                            if not df_crm.empty:
-                                cantidad_tickets = df_crm['cantidad_tickets'].sum()
+                            # Obtener tickets del CRM para el período
+                            try:
+                                crm_query = supabase.table("crm_datos_diarios")\
+                                    .select("cantidad_tickets")\
+                                    .gte("fecha", str(fecha_desde))\
+                                    .lte("fecha", str(fecha_hasta))
+                                
+                                # Aplicar filtros de sucursal
+                                if not todas_sucursales:
+                                    crm_query = crm_query.eq("sucursal_id", sucursal_seleccionada['id'])
+                                elif razon_seleccionada != "Todas" and sucursales_ids:
+                                    crm_query = crm_query.in_("sucursal_id", sucursales_ids)
+                                
+                                crm_result = crm_query.execute()
+                                
+                                cantidad_tickets = sum([r['cantidad_tickets'] for r in crm_result.data]) if crm_result.data else 0
                                 ticket_promedio = (ventas_total / cantidad_tickets) if cantidad_tickets > 0 else 0.0
-                            else:
+                            except:
                                 cantidad_tickets = 0
                                 ticket_promedio = 0.0
                             
@@ -878,7 +654,9 @@ if tab3 is not None:
                             st.markdown("### 📊 Resumen del Período")
                             
                             # Mostrar información del filtro aplicado
-                            if todas_sucursales:
+                            if todas_sucursales and razon_seleccionada != "Todas":
+                                st.info(f"📋 Filtrado por Razón Social: **{razon_seleccionada}**")
+                            elif todas_sucursales:
                                 st.info("📋 Mostrando: **Todas las Sucursales**")
                             else:
                                 st.info(f"📋 Sucursal: **{sucursal_seleccionada['nombre']}**")
@@ -894,115 +672,227 @@ if tab3 is not None:
                             
                             st.markdown("---")
                             
-                            # ==================== RESUMEN DIARIO VECTORIZADO - V6.0 🚀 ====================
+                            # ==================== RESUMEN DIARIO ====================
                             st.markdown("### 📅 Resumen Diario")
                             st.info("Resumen día por día del período seleccionado")
                             
-                            # 🚀 V6.0: Usar cálculo vectorizado en lugar de bucles
-                            df_resumen_diario = calcular_resumen_diario_vectorizado(df, df_crm, todas_sucursales)
+                            # Obtener fechas únicas y ordenarlas
+                            fechas_unicas = sorted(df['fecha'].unique())
                             
-                            if not df_resumen_diario.empty:
-                                # Preparar DataFrame para mostrar
+                            # Crear DataFrame para el resumen diario
+                            resumen_diario_data = []
+                            
+                            for fecha in fechas_unicas:
+                                df_fecha = df[df['fecha'] == fecha]
+                                
+                                # Convertir fecha a datetime para obtener día de la semana
+                                from datetime import datetime
+                                fecha_dt = datetime.strptime(fecha, '%Y-%m-%d')
+                                dias_semana = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
+                                dia_semana = dias_semana[fecha_dt.weekday()]
+                                fecha_formateada = f"{fecha_dt.strftime('%d/%m/%Y')} ({dia_semana})"
+                                
                                 if todas_sucursales:
-                                    cols_display = ['fecha_formateada', 'sucursal_nombre', 'total_tarjetas', 'total_gastos', 
-                                                  'efectivo_entregado', 'total_ventas', 'cantidad_tickets', 'ticket_promedio']
-                                    col_names = ['Fecha', 'Sucursal', 'Total Tarjetas', 'Total Gastos', 'Efectivo Entregado', 
-                                               'Total Ventas', 'Tickets', 'Ticket Promedio']
+                                    # Agrupar por sucursal
+                                    for sucursal in df_fecha['sucursal_nombre'].unique():
+                                        df_suc_fecha = df_fecha[df_fecha['sucursal_nombre'] == sucursal]
+                                        
+                                        # Separar ventas y gastos
+                                        df_ventas_dia = df_suc_fecha[df_suc_fecha['tipo'] == 'venta']
+                                        df_gastos_dia = df_suc_fecha[df_suc_fecha['tipo'] == 'gasto']
+                                        
+                                        # Calcular métricas
+                                        ventas_total_dia = df_ventas_dia['monto'].sum()
+                                        gastos_total_dia = df_gastos_dia['monto'].sum()
+                                        ventas_efectivo_dia = df_ventas_dia[df_ventas_dia['medio_pago_nombre'] == 'Efectivo']['monto'].sum()
+                                        total_tarjetas_dia = ventas_total_dia - ventas_efectivo_dia
+                                        efectivo_entregado_dia = ventas_efectivo_dia - gastos_total_dia
+                                        
+                                        # Obtener tickets del CRM para esta fecha y sucursal
+                                        try:
+                                            crm_dia = supabase.table("crm_datos_diarios")\
+                                                .select("cantidad_tickets")\
+                                                .eq("fecha", fecha)\
+                                                .eq("sucursal_id", df_suc_fecha['sucursal_id'].iloc[0])\
+                                                .execute()
+                                            
+                                            tickets_dia = crm_dia.data[0]['cantidad_tickets'] if crm_dia.data else 0
+                                            ticket_promedio_dia = (ventas_total_dia / tickets_dia) if tickets_dia > 0 else 0
+                                        except:
+                                            tickets_dia = 0
+                                            ticket_promedio_dia = 0
+                                        
+                                        resumen_diario_data.append({
+                                            'Fecha': fecha_formateada,
+                                            'Sucursal': sucursal,
+                                            'Total Tarjetas': total_tarjetas_dia,
+                                            'Total Gastos': gastos_total_dia,
+                                            'Efectivo Entregado': efectivo_entregado_dia,
+                                            'Total Ventas': ventas_total_dia,
+                                            'Tickets': tickets_dia,
+                                            'Ticket Promedio': ticket_promedio_dia
+                                        })
                                 else:
-                                    cols_display = ['fecha_formateada', 'total_tarjetas', 'total_gastos', 
-                                                  'efectivo_entregado', 'total_ventas', 'cantidad_tickets', 'ticket_promedio']
-                                    col_names = ['Fecha', 'Total Tarjetas', 'Total Gastos', 'Efectivo Entregado', 
-                                               'Total Ventas', 'Tickets', 'Ticket Promedio']
-                                
-                                df_display = df_resumen_diario[cols_display].copy()
-                                df_display.columns = col_names
-                                
-                                # Formatear montos
-                                for col in ['Total Tarjetas', 'Total Gastos', 'Efectivo Entregado', 'Total Ventas', 'Ticket Promedio']:
-                                    df_display[col] = df_display[col].apply(lambda x: f"${x:,.2f}")
-                                
-                                st.dataframe(df_display, use_container_width=True, hide_index=True)
-                                
-                                # Botón para descargar resumen diario
-                                csv_diario = df_resumen_diario.to_csv(index=False)
-                                st.download_button(
-                                    label="📥 Descargar Resumen Diario (CSV)",
-                                    data=csv_diario,
-                                    file_name=f"resumen_diario_{fecha_desde}_{fecha_hasta}.csv",
-                                    mime="text/csv"
-                                )
+                                    # Solo una sucursal
+                                    df_ventas_dia = df_fecha[df_fecha['tipo'] == 'venta']
+                                    df_gastos_dia = df_fecha[df_fecha['tipo'] == 'gasto']
+                                    
+                                    ventas_total_dia = df_ventas_dia['monto'].sum()
+                                    gastos_total_dia = df_gastos_dia['monto'].sum()
+                                    ventas_efectivo_dia = df_ventas_dia[df_ventas_dia['medio_pago_nombre'] == 'Efectivo']['monto'].sum()
+                                    total_tarjetas_dia = ventas_total_dia - ventas_efectivo_dia
+                                    efectivo_entregado_dia = ventas_efectivo_dia - gastos_total_dia
+                                    
+                                    # Obtener tickets del CRM
+                                    try:
+                                        crm_dia = supabase.table("crm_datos_diarios")\
+                                            .select("cantidad_tickets")\
+                                            .eq("fecha", fecha)\
+                                            .eq("sucursal_id", sucursal_seleccionada['id'])\
+                                            .execute()
+                                        
+                                        tickets_dia = crm_dia.data[0]['cantidad_tickets'] if crm_dia.data else 0
+                                        ticket_promedio_dia = (ventas_total_dia / tickets_dia) if tickets_dia > 0 else 0
+                                    except:
+                                        tickets_dia = 0
+                                        ticket_promedio_dia = 0
+                                    
+                                    resumen_diario_data.append({
+                                        'Fecha': fecha_formateada,
+                                        'Total Tarjetas': total_tarjetas_dia,
+                                        'Total Gastos': gastos_total_dia,
+                                        'Efectivo Entregado': efectivo_entregado_dia,
+                                        'Total Ventas': ventas_total_dia,
+                                        'Tickets': tickets_dia,
+                                        'Ticket Promedio': ticket_promedio_dia
+                                    })
+                            
+                            # Crear DataFrame y mostrar
+                            df_resumen_diario = pd.DataFrame(resumen_diario_data)
+                            
+                            # Formatear montos
+                            df_resumen_diario_display = df_resumen_diario.copy()
+                            df_resumen_diario_display['Total Tarjetas'] = df_resumen_diario_display['Total Tarjetas'].apply(lambda x: f"${x:,.2f}")
+                            df_resumen_diario_display['Total Gastos'] = df_resumen_diario_display['Total Gastos'].apply(lambda x: f"${x:,.2f}")
+                            df_resumen_diario_display['Efectivo Entregado'] = df_resumen_diario_display['Efectivo Entregado'].apply(lambda x: f"${x:,.2f}")
+                            df_resumen_diario_display['Total Ventas'] = df_resumen_diario_display['Total Ventas'].apply(lambda x: f"${x:,.2f}")
+                            df_resumen_diario_display['Ticket Promedio'] = df_resumen_diario_display['Ticket Promedio'].apply(lambda x: f"${x:,.2f}")
+                            
+                            st.dataframe(df_resumen_diario_display, use_container_width=True, hide_index=True)
+                            
+                            # Botón para descargar resumen diario
+                            csv_diario = df_resumen_diario.to_csv(index=False)
+                            st.download_button(
+                                label="📥 Descargar Resumen Diario (CSV)",
+                                data=csv_diario,
+                                file_name=f"resumen_diario_{fecha_desde}_{fecha_hasta}.csv",
+                                mime="text/csv"
+                            )
                             
                             st.markdown("---")
                             
-                            # Tabla resumen por sucursal (vectorizada)
+                            # Tabla resumen por sucursal
                             if todas_sucursales:
                                 st.markdown("### 🏪 Resumen por Sucursal")
                                 
-                                # 🚀 V6.0: Usar groupby vectorizado
                                 resumen = df.groupby(['sucursal_nombre', 'tipo'])['monto'].sum().unstack(fill_value=0)
                                 if 'venta' in resumen.columns and 'gasto' in resumen.columns:
                                     resumen['neto'] = resumen['venta'] - resumen['gasto']
-                                    resumen.columns = ['Gastos', 'Ventas', 'Neto']
-                                    
-                                    # Formatear para visualización
-                                    resumen_display = resumen.copy()
-                                    for col in resumen_display.columns:
-                                        resumen_display[col] = resumen_display[col].apply(lambda x: f"${x:,.2f}")
-                                    
-                                    st.dataframe(resumen_display, use_container_width=True)
+                                
+                                resumen_display = resumen.copy()
+                                for col in resumen_display.columns:
+                                    resumen_display[col] = resumen_display[col].apply(lambda x: f"${x:,.2f}")
+                                
+                                st.dataframe(resumen_display, use_container_width=True)
+                                
+                                st.markdown("---")
+                            
+                            # Resumen por categoría
+                            st.markdown("### 📂 Resumen por Categoría")
+                            
+                            resumen_cat = df.groupby(['tipo', 'categoria_nombre'])['monto'].sum().unstack(fill_value=0)
+                            st.dataframe(resumen_cat.style.format("${:,.2f}"), use_container_width=True)
                             
                             st.markdown("---")
                             
-                            # Detalle expandible
-                            with st.expander("📋 Ver detalle de todos los movimientos"):
-                                df_detalle = df[['fecha', 'sucursal_nombre', 'tipo', 'categoria_nombre', 'concepto', 'monto', 'medio_pago_nombre', 'usuario']].copy()
-                                df_detalle['concepto'] = df_detalle['concepto'].fillna('Sin detalle')
-                                df_detalle['monto_formato'] = df_detalle['monto'].apply(lambda x: f"${x:,.2f}")
-                                df_detalle = df_detalle[['fecha', 'sucursal_nombre', 'tipo', 'categoria_nombre', 'concepto', 'monto_formato', 'medio_pago_nombre', 'usuario']]
-                                df_detalle.columns = ['Fecha', 'Sucursal', 'Tipo', 'Categoría', 'Concepto', 'Monto', 'Medio Pago', 'Usuario']
-                                st.dataframe(df_detalle, use_container_width=True, hide_index=True)
+                            # Resumen por medio de pago
+                            st.markdown("### 💳 Resumen por Medio de Pago")
                             
-                            # Botón para descargar reporte completo
+                            resumen_medios = df[df['tipo']=='venta'].groupby('medio_pago_nombre')['monto'].sum().reset_index()
+                            resumen_medios.columns = ['Medio de Pago', 'Monto Total']
+                            resumen_medios = resumen_medios.sort_values('Monto Total', ascending=False)
+                            resumen_medios['Monto Total'] = resumen_medios['Monto Total'].apply(lambda x: f"${x:,.2f}")
+                            st.dataframe(resumen_medios, use_container_width=True, hide_index=True)
+                            
                             st.markdown("---")
-                            csv_completo = df[['fecha', 'sucursal_nombre', 'tipo', 'categoria_nombre', 'concepto', 'monto', 'medio_pago_nombre', 'usuario']].to_csv(index=False)
+                            
+                            # Detalle completo
+                            st.markdown("### 📋 Detalle de Movimientos")
+                            
+                            df_detalle = df[['fecha', 'sucursal_nombre', 'tipo', 'categoria_nombre', 'concepto', 'monto', 'medio_pago_nombre']].copy()
+                            df_detalle['concepto'] = df_detalle['concepto'].fillna('Sin detalle')
+                            df_detalle['monto'] = df_detalle['monto'].apply(lambda x: f"${x:,.2f}")
+                            df_detalle.columns = ['Fecha', 'Sucursal', 'Tipo', 'Categoría', 'Concepto', 'Monto', 'Medio Pago']
+                            
+                            st.dataframe(df_detalle, use_container_width=True, hide_index=True)
+                            
+                            # Botón para descargar CSV
+                            csv = df[['fecha', 'sucursal_nombre', 'tipo', 'categoria_nombre', 'concepto', 'monto', 'medio_pago_nombre']].to_csv(index=False)
                             st.download_button(
-                                label="📥 Descargar Reporte Completo (CSV)",
-                                data=csv_completo,
-                                file_name=f"reporte_completo_{fecha_desde}_{fecha_hasta}.csv",
-                                mime="text/csv",
-                                use_container_width=True
+                                label="⬇️ Descargar CSV",
+                                data=csv,
+                                file_name=f"reporte_{fecha_desde}_{fecha_hasta}.csv",
+                                mime="text/csv"
                             )
-                    
+                            
+                        else:
+                            st.warning("⚠️ No hay datos para el período seleccionado")
+                            
                     except Exception as e:
                         st.error(f"❌ Error generando reporte: {str(e)}")
-                        import traceback
-                        st.code(traceback.format_exc())
         
-        # ==================== REPORTE DE GASTOS ====================
-        with tab_gastos:
-            st.markdown("### 💸 Reporte de Gastos por Categoría")
-            st.info("Análisis detallado de gastos agrupados por sucursal y categoría")
+        # ==================== TAB: REPORTE DE GASTOS MENSUAL ====================
+        with tab_reporte_gastos:
+            st.markdown("### 💸 Reporte Detallado de Gastos por Sucursal")
+            st.info("📋 Este reporte muestra el detalle de gastos por categoría para todas las sucursales en un período específico")
             
-            # Selector de rango de fechas para gastos
-            col1, col2 = st.columns(2)
-            with col1:
-                fecha_desde_gastos = st.date_input("Fecha desde", value=date.today(), key="fecha_desde_gastos")
-            with col2:
-                fecha_hasta_gastos = st.date_input("Fecha hasta", value=date.today(), key="fecha_hasta_gastos")
+            col_fecha1, col_fecha2 = st.columns(2)
+            
+            with col_fecha1:
+                fecha_desde_gastos = st.date_input(
+                    "Fecha Desde",
+                    value=date.today().replace(day=1),
+                    key="fecha_desde_gastos"
+                )
+            
+            with col_fecha2:
+                fecha_hasta_gastos = st.date_input(
+                    "Fecha Hasta",
+                    value=date.today(),
+                    key="fecha_hasta_gastos"
+                )
             
             if st.button("📊 Generar Reporte de Gastos", type="primary", use_container_width=True):
                 with st.spinner("Generando reporte de gastos..."):
                     try:
-                        # 🚀 V6.0: Batch fetching optimizado
-                        ids_todas = [s['id'] for s in sucursales]
-                        df_gastos = obtener_movimientos_batch(ids_todas, fecha_desde_gastos, fecha_hasta_gastos)
+                        # Consultar gastos del período para todas las sucursales
+                        result = supabase.table("movimientos_diarios")\
+                            .select("*, sucursales(nombre), categorias(nombre), medios_pago(nombre)")\
+                            .eq("tipo", "gasto")\
+                            .gte("fecha", str(fecha_desde_gastos))\
+                            .lte("fecha", str(fecha_hasta_gastos))\
+                            .order("sucursal_id")\
+                            .order("categoria_id")\
+                            .execute()
                         
-                        # Filtrar solo gastos
-                        df_gastos = df_gastos[df_gastos['tipo'] == 'gasto']
-                        
-                        if df_gastos.empty:
-                            st.warning(f"⚠️ No hay gastos registrados para el período seleccionado")
-                        else:
+                        if result.data:
+                            df_gastos = pd.DataFrame(result.data)
+                            
+                            # Extraer nombres
+                            df_gastos['sucursal_nombre'] = df_gastos['sucursales'].apply(lambda x: x['nombre'] if x else 'N/A')
+                            df_gastos['categoria_nombre'] = df_gastos['categorias'].apply(lambda x: x['nombre'] if x else 'Sin categoría')
+                            df_gastos['medio_pago_nombre'] = df_gastos['medios_pago'].apply(lambda x: x['nombre'] if x else 'Sin medio')
+                            
                             st.markdown(f"#### 📊 Gastos del {fecha_desde_gastos.strftime('%d/%m/%Y')} al {fecha_hasta_gastos.strftime('%d/%m/%Y')}")
                             
                             # Total general
@@ -1011,7 +901,7 @@ if tab3 is not None:
                             
                             st.markdown("---")
                             
-                            # Agrupar por sucursal (vectorizado)
+                            # Agrupar por sucursal
                             for sucursal in df_gastos['sucursal_nombre'].unique():
                                 df_suc = df_gastos[df_gastos['sucursal_nombre'] == sucursal]
                                 total_sucursal = df_suc['monto'].sum()
@@ -1019,7 +909,7 @@ if tab3 is not None:
                                 st.markdown(f"### 🏪 {sucursal}")
                                 st.markdown(f"**Total Sucursal: ${total_sucursal:,.2f}**")
                                 
-                                # Resumen por categoría (vectorizado)
+                                # Resumen por categoría
                                 resumen_categorias = df_suc.groupby('categoria_nombre')['monto'].sum().reset_index()
                                 resumen_categorias.columns = ['Categoría', 'Monto Total']
                                 resumen_categorias = resumen_categorias.sort_values('Monto Total', ascending=False)
@@ -1045,7 +935,7 @@ if tab3 is not None:
                                 
                                 st.markdown("---")
                             
-                            # Resumen consolidado por categoría (vectorizado)
+                            # Resumen consolidado por categoría
                             st.markdown("### 📊 Resumen Consolidado por Categoría")
                             resumen_consolidado = df_gastos.groupby('categoria_nombre')['monto'].sum().reset_index()
                             resumen_consolidado.columns = ['Categoría', 'Monto Total']
@@ -1069,6 +959,8 @@ if tab3 is not None:
                                 mime="text/csv",
                                 use_container_width=True
                             )
+                        else:
+                            st.warning(f"⚠️ No hay gastos registrados para el período seleccionado")
                     
                     except Exception as e:
                         st.error(f"❌ Error generando reporte de gastos: {str(e)}")
@@ -1081,95 +973,121 @@ if tab4 is not None:
         
         st.info("📊 Esta sección permite cargar los datos de ventas y tickets desde los sistemas CRM de cada sucursal para comparación y control.")
         
-        # Verificar si la sucursal tiene configuración de CRM
-        try:
-            crm_config = supabase.table("sucursales_crm")\
-                .select("id, sistema_crm")\
-                .eq("sucursal_id", sucursal_seleccionada['id'])\
-                .execute()
-            
-            if not crm_config.data:
-                st.warning(f"⚠️ La sucursal {sucursal_seleccionada['nombre']} no tiene configurado un sistema CRM. Por favor, configúralo en la sección de Mantenimiento.")
-            else:
-                sistema_crm = crm_config.data[0]['sistema_crm']
-                st.info(f"🖥️ Sistema CRM: **{sistema_crm}**")
-        except:
-            sistema_crm = "No configurado"
+        # ==================== FORMULARIO DE CARGA ====================
+        st.markdown("### 📝 Cargar Datos del CRM")
         
-        # Formulario para cargar datos de CRM
-        @st.fragment
-        def formulario_crm():
-            """
-            🚀 V6.0 - NUEVO: Usando @st.fragment
-            """
-            st.markdown("### 📥 Cargar Datos del CRM")
+        with st.form("form_crm", clear_on_submit=True):
+            col1, col2 = st.columns(2)
             
-            with st.form("form_crm", clear_on_submit=True):
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    fecha_crm = st.date_input("Fecha *", value=date.today())
+            with col1:
+                # Cargar sucursales con su sistema CRM
+                try:
+                    sucursales_con_crm = []
+                    for suc in sucursales_disponibles:  # Usar sucursales del usuario
+                        crm_info = supabase.table("sucursales_crm")\
+                            .select("sistema_crm")\
+                            .eq("sucursal_id", suc['id'])\
+                            .single()\
+                            .execute()
+                        
+                        suc_con_crm = suc.copy()
+                        suc_con_crm['sistema_crm'] = crm_info.data['sistema_crm'] if crm_info.data else "Sin asignar"
+                        sucursales_con_crm.append(suc_con_crm)
+                    
+                    # Selector de sucursal con sistema CRM incluido
                     sucursal_crm = st.selectbox(
-                        "Sucursal *",
-                        options=sucursales_disponibles,
-                        format_func=lambda x: x['nombre']
+                        "🏪 Sucursal",
+                        options=sucursales_con_crm,
+                        format_func=lambda x: f"{x['nombre']} (💻 {x['sistema_crm']})",
+                        key="sucursal_crm"
+                    )
+                    
+                except Exception as e:
+                    st.error(f"❌ Error cargando sucursales: {str(e)}")
+                    sucursal_crm = st.selectbox(
+                        "🏪 Sucursal",
+                        options=sucursales_disponibles,  # Usar sucursales del usuario
+                        format_func=lambda x: x['nombre'],
+                        key="sucursal_crm"
                     )
                 
-                with col2:
-                    total_ventas_crm = st.number_input("Total de Ventas CRM *", min_value=0.0, step=0.01, format="%.2f")
-                    cantidad_tickets = st.number_input("Cantidad de Tickets *", min_value=0, step=1)
+                # Fecha
+                fecha_crm = st.date_input(
+                    "📅 Fecha",
+                    value=date.today(),
+                    key="fecha_crm"
+                )
+            
+            with col2:
+                # Total de ventas del CRM
+                total_ventas_crm = st.number_input(
+                    "💰 Total Ventas CRM ($)",
+                    min_value=0.0,
+                    step=0.01,
+                    format="%.2f",
+                    help="Total de ventas según el sistema CRM",
+                    key="total_ventas_crm"
+                )
                 
-                submitted = st.form_submit_button("💾 Guardar Datos CRM", type="primary", use_container_width=True)
-                
-                if submitted:
-                    if total_ventas_crm <= 0 or cantidad_tickets <= 0:
-                        st.warning("⚠️ El total de ventas y la cantidad de tickets deben ser mayores a 0")
-                    else:
-                        try:
-                            # Verificar si ya existe un registro para esa fecha y sucursal
-                            existing = supabase.table("crm_datos_diarios")\
-                                .select("id")\
+                # Cantidad de tickets
+                cantidad_tickets = st.number_input(
+                    "🎫 Cantidad de Tickets",
+                    min_value=0,
+                    step=1,
+                    help="Número total de tickets/facturas emitidas",
+                    key="cantidad_tickets"
+                )
+            
+            # Botón de guardar
+            col_btn1, col_btn2 = st.columns([3, 1])
+            with col_btn2:
+                submitted_crm = st.form_submit_button("💾 Guardar", use_container_width=True, type="primary")
+            
+            if submitted_crm:
+                if total_ventas_crm <= 0 or cantidad_tickets <= 0:
+                    st.error("⚠️ Completa todos los campos con valores válidos")
+                else:
+                    try:
+                        # Verificar si ya existe un registro para esta fecha y sucursal
+                        existing = supabase.table("crm_datos_diarios")\
+                            .select("id")\
+                            .eq("sucursal_id", sucursal_crm['id'])\
+                            .eq("fecha", str(fecha_crm))\
+                            .execute()
+                        
+                        if existing.data:
+                            # Actualizar registro existente
+                            result = supabase.table("crm_datos_diarios")\
+                                .update({
+                                    "total_ventas_crm": total_ventas_crm,
+                                    "cantidad_tickets": cantidad_tickets,
+                                    "usuario": st.session_state.user['nombre'],
+                                    "updated_at": datetime.now().isoformat()
+                                })\
                                 .eq("sucursal_id", sucursal_crm['id'])\
                                 .eq("fecha", str(fecha_crm))\
                                 .execute()
                             
-                            if existing.data:
-                                st.warning(f"⚠️ Ya existe un registro de CRM para {sucursal_crm['nombre']} el {fecha_crm.strftime('%d/%m/%Y')}")
-                                if st.button("🔄 Actualizar registro existente"):
-                                    # Actualizar
-                                    supabase.table("crm_datos_diarios")\
-                                        .update({
-                                            "total_ventas_crm": total_ventas_crm,
-                                            "cantidad_tickets": cantidad_tickets,
-                                            "usuario": st.session_state.user['nombre']
-                                        })\
-                                        .eq("id", existing.data[0]['id'])\
-                                        .execute()
-                                    
-                                    st.toast("✅ Datos CRM actualizados", icon="✅")
-                                    st.rerun()
+                            st.toast(f"✅ CRM actualizado: ${total_ventas_crm:,.2f} - {cantidad_tickets} tickets", icon="✅")
+                        else:
+                            # Insertar nuevo registro
+                            data_crm = {
+                                "sucursal_id": sucursal_crm['id'],
+                                "fecha": str(fecha_crm),
+                                "total_ventas_crm": total_ventas_crm,
+                                "cantidad_tickets": cantidad_tickets,
+                                "usuario": st.session_state.user['nombre']
+                            }
+                            
+                            result = supabase.table("crm_datos_diarios").insert(data_crm).execute()
+                            
+                            if result.data:
+                                st.toast(f"✅ CRM guardado: ${total_ventas_crm:,.2f} - {cantidad_tickets} tickets", icon="✅")
                             else:
-                                # Insertar nuevo
-                                data_crm = {
-                                    "sucursal_id": sucursal_crm['id'],
-                                    "fecha": str(fecha_crm),
-                                    "total_ventas_crm": total_ventas_crm,
-                                    "cantidad_tickets": cantidad_tickets,
-                                    "usuario": st.session_state.user['nombre']
-                                }
-                                
-                                result = supabase.table("crm_datos_diarios").insert(data_crm).execute()
-                                
-                                if result.data:
-                                    st.toast(f"✅ CRM guardado: ${total_ventas_crm:,.2f} - {cantidad_tickets} tickets", icon="✅")
-                                    st.rerun()
-                                else:
-                                    st.error("❌ Error al guardar los datos")
+                                st.error("❌ Error al guardar los datos")
                         
-                        except Exception as e:
-                            st.error(f"❌ Error: {str(e)}")
-        
-        formulario_crm()
+                    except Exception as e:
+                        st.error(f"❌ Error: {str(e)}")
         
         st.markdown("---")
         st.info("💡 **Próximos pasos:** Ve a la pestaña '🔄 Conciliación Cajas' para comparar los datos cargados con el sistema de cajas.")
@@ -1189,7 +1107,7 @@ if tab5 is not None:
             "🔍 Consulta Individual"
         ])
         
-        # ==================== INFORME DIARIO - BATCH FETCHING V6.0 🚀 ====================
+        # ==================== INFORME DIARIO - TODAS LAS SUCURSALES ====================
         with tab_concil_diario:
             st.markdown("### 📅 Conciliación Diaria - Todas las Sucursales")
             st.markdown("Compara las ventas de todas las sucursales en una fecha específica")
@@ -1202,35 +1120,29 @@ if tab5 is not None:
             
             if st.button("📊 Generar Informe Diario", type="primary", use_container_width=True):
                 try:
-                    # 🚀 V6.0 CRÍTICO: Batch fetching - resuelve problema N+1
-                    # Antes: 2 queries por sucursal (10 sucursales = 20 queries)
-                    # Ahora: 2 queries totales (1 para movimientos, 1 para CRM)
-                    
-                    sucursales_ids = [s['id'] for s in sucursales]
-                    
-                    # UNA SOLA query para movimientos de todas las sucursales
-                    df_movimientos = obtener_movimientos_batch(sucursales_ids, fecha_informe_diario)
-                    
-                    # UNA SOLA query para CRM de todas las sucursales
-                    df_crm = obtener_crm_batch(sucursales_ids, fecha_informe_diario)
-                    
-                    # Procesar resultados con vectorización
+                    # Obtener todas las sucursales (admin ve todas)
                     resultados = []
                     
                     for suc in sucursales:
-                        # Filtrar movimientos de esta sucursal (en memoria, muy rápido)
-                        df_suc_mov = df_movimientos[
-                            (df_movimientos['sucursal_id'] == suc['id']) & 
-                            (df_movimientos['tipo'] == 'venta')
-                        ]
+                        # Obtener ventas del sistema de cajas
+                        movimientos = supabase.table("movimientos_diarios")\
+                            .select("monto")\
+                            .eq("sucursal_id", suc['id'])\
+                            .eq("fecha", str(fecha_informe_diario))\
+                            .eq("tipo", "venta")\
+                            .execute()
                         
-                        total_cajas = df_suc_mov['monto'].sum() if not df_suc_mov.empty else 0.0
+                        total_cajas = sum([m['monto'] for m in movimientos.data]) if movimientos.data else 0.0
                         
-                        # Filtrar CRM de esta sucursal (en memoria, muy rápido)
-                        df_suc_crm = df_crm[df_crm['sucursal_id'] == suc['id']]
+                        # Obtener datos del CRM
+                        crm_data = supabase.table("crm_datos_diarios")\
+                            .select("total_ventas_crm, cantidad_tickets")\
+                            .eq("sucursal_id", suc['id'])\
+                            .eq("fecha", str(fecha_informe_diario))\
+                            .execute()
                         
-                        total_crm = df_suc_crm['total_ventas_crm'].iloc[0] if not df_suc_crm.empty else 0.0
-                        tickets = df_suc_crm['cantidad_tickets'].iloc[0] if not df_suc_crm.empty else 0
+                        total_crm = crm_data.data[0]['total_ventas_crm'] if crm_data.data else 0.0
+                        tickets = crm_data.data[0]['cantidad_tickets'] if crm_data.data else 0
                         
                         diferencia = total_cajas - total_crm
                         porcentaje = (abs(diferencia) / total_crm * 100) if total_crm > 0 else 0
@@ -1262,416 +1174,573 @@ if tab5 is not None:
                         st.markdown("#### 📊 Resultados de Conciliación Diaria")
                         st.markdown(f"**Fecha:** {fecha_informe_diario.strftime('%d/%m/%Y')}")
                         
-                        # Calcular totales
-                        total_cajas_all = df_conciliacion['Sistema Cajas'].sum()
-                        total_crm_all = df_conciliacion['Sistema CRM'].sum()
-                        diferencia_total = total_cajas_all - total_crm_all
+                        # Métricas generales
+                        col_met1, col_met2, col_met3, col_met4 = st.columns(4)
                         
-                        col1, col2, col3 = st.columns(3)
-                        col1.metric("💰 Total Sistema Cajas", f"${total_cajas_all:,.2f}")
-                        col2.metric("🖥️ Total Sistema CRM", f"${total_crm_all:,.2f}")
-                        col3.metric("📊 Diferencia Total", f"${diferencia_total:,.2f}", delta=f"{diferencia_total:,.2f}")
+                        with col_met1:
+                            total_cajas_general = df_conciliacion['Sistema Cajas'].sum()
+                            st.metric("💼 Total Cajas", f"${total_cajas_general:,.2f}")
+                        
+                        with col_met2:
+                            total_crm_general = df_conciliacion['Sistema CRM'].sum()
+                            st.metric("💻 Total CRM", f"${total_crm_general:,.2f}")
+                        
+                        with col_met3:
+                            diferencia_general = total_cajas_general - total_crm_general
+                            st.metric(
+                                "📊 Diferencia Total", 
+                                f"${abs(diferencia_general):,.2f}",
+                                f"{diferencia_general:,.2f}"
+                            )
+                        
+                        with col_met4:
+                            sucursales_ok = len(df_conciliacion[df_conciliacion['Estado'] == '✅ OK'])
+                            st.metric("✅ Sucursales OK", f"{sucursales_ok}/{len(df_conciliacion)}")
                         
                         st.markdown("---")
                         
-                        # Formatear DataFrame para visualización
+                        # Formatear DataFrame para mostrar
                         df_display = df_conciliacion.copy()
                         df_display['Sistema Cajas'] = df_display['Sistema Cajas'].apply(lambda x: f"${x:,.2f}")
                         df_display['Sistema CRM'] = df_display['Sistema CRM'].apply(lambda x: f"${x:,.2f}")
                         df_display['Diferencia'] = df_display['Diferencia'].apply(lambda x: f"${x:,.2f}")
                         df_display['Diferencia %'] = df_display['Diferencia %'].apply(lambda x: f"{x:.2f}%")
                         
-                        # Aplicar estilos según estado
-                        def highlight_estado(row):
-                            if row['Estado'] == '✅ OK':
-                                return ['background-color: #d4edda'] * len(row)
-                            elif row['Estado'] == '⚠️ Revisar':
-                                return ['background-color: #fff3cd'] * len(row)
-                            elif row['Estado'] == '❌ Crítico':
-                                return ['background-color: #f8d7da'] * len(row)
-                            else:
-                                return [''] * len(row)
+                        # Mostrar tabla con colores
+                        st.dataframe(
+                            df_display,
+                            use_container_width=True,
+                            hide_index=True,
+                            column_config={
+                                "Estado": st.column_config.TextColumn(
+                                    "Estado",
+                                    width="small"
+                                )
+                            }
+                        )
                         
-                        st.dataframe(df_display.style.apply(highlight_estado, axis=1), use_container_width=True, hide_index=True)
-                        
-                        # Resumen de estados
-                        st.markdown("---")
-                        st.markdown("#### 📈 Resumen de Estados")
-                        
-                        estados_count = df_conciliacion['Estado'].value_counts()
-                        col1, col2, col3, col4 = st.columns(4)
-                        
-                        col1.metric("✅ OK", estados_count.get('✅ OK', 0))
-                        col2.metric("⚠️ Revisar", estados_count.get('⚠️ Revisar', 0))
-                        col3.metric("❌ Crítico", estados_count.get('❌ Crítico', 0))
-                        col4.metric("📭 Sin CRM", estados_count.get('Sin datos CRM', 0))
-                        
-                        # Descargar CSV
-                        st.markdown("---")
-                        csv_conciliacion = df_conciliacion.to_csv(index=False)
+                        # Exportar a CSV
+                        csv = df_conciliacion.to_csv(index=False)
                         st.download_button(
                             label="📥 Descargar Informe (CSV)",
-                            data=csv_conciliacion,
+                            data=csv,
                             file_name=f"conciliacion_diaria_{fecha_informe_diario}.csv",
-                            mime="text/csv",
-                            use_container_width=True
+                            mime="text/csv"
                         )
-                    
+                    else:
+                        st.warning("No hay datos para mostrar en la fecha seleccionada")
+                
                 except Exception as e:
                     st.error(f"❌ Error generando informe: {str(e)}")
-                    import traceback
-                    st.code(traceback.format_exc())
         
-        # ==================== INFORME MENSUAL ====================
+        # ==================== INFORME MENSUAL - TODAS LAS SUCURSALES ====================
         with tab_concil_mensual:
-            st.markdown("### 📆 Conciliación Mensual")
-            st.markdown("Análisis de conciliación para un mes completo")
+            st.markdown("### 📆 Conciliación Mensual - Todas las Sucursales")
+            st.markdown("Compara las ventas acumuladas del mes para todas las sucursales")
             
-            col1, col2 = st.columns(2)
-            with col1:
-                mes_seleccionado = st.selectbox(
+            col_mes1, col_mes2 = st.columns(2)
+            
+            with col_mes1:
+                año_mensual = st.number_input(
+                    "Año",
+                    min_value=2020,
+                    max_value=2030,
+                    value=date.today().year,
+                    key="año_mensual"
+                )
+            
+            with col_mes2:
+                mes_mensual = st.selectbox(
                     "Mes",
                     options=list(range(1, 13)),
-                    format_func=lambda x: datetime(2024, x, 1).strftime('%B'),
-                    index=date.today().month - 1
+                    format_func=lambda x: [
+                        "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+                        "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
+                    ][x-1],
+                    index=date.today().month - 1,
+                    key="mes_mensual"
                 )
-            with col2:
-                año_seleccionado = st.number_input("Año", min_value=2020, max_value=2030, value=date.today().year, step=1)
             
             if st.button("📊 Generar Informe Mensual", type="primary", use_container_width=True):
                 try:
+                    # Calcular fechas del mes
                     from calendar import monthrange
+                    ultimo_dia = monthrange(año_mensual, mes_mensual)[1]
+                    fecha_desde = date(año_mensual, mes_mensual, 1)
+                    fecha_hasta = date(año_mensual, mes_mensual, ultimo_dia)
                     
-                    # Calcular primer y último día del mes
-                    primer_dia = date(año_seleccionado, mes_seleccionado, 1)
-                    ultimo_dia = date(año_seleccionado, mes_seleccionado, monthrange(año_seleccionado, mes_seleccionado)[1])
+                    resultados_mensual = []
                     
-                    # 🚀 V6.0: Batch fetching para todo el mes
-                    sucursales_ids = [s['id'] for s in sucursales]
-                    df_movimientos = obtener_movimientos_batch(sucursales_ids, primer_dia, ultimo_dia)
-                    df_crm = obtener_crm_batch(sucursales_ids, primer_dia, ultimo_dia)
-                    
-                    if df_movimientos.empty and df_crm.empty:
-                        st.warning("⚠️ No hay datos para el mes seleccionado")
-                    else:
-                        st.markdown(f"#### 📊 Conciliación Mensual - {datetime(año_seleccionado, mes_seleccionado, 1).strftime('%B %Y')}")
+                    for suc in sucursales:
+                        # Obtener ventas del sistema de cajas del mes
+                        movimientos = supabase.table("movimientos_diarios")\
+                            .select("monto")\
+                            .eq("sucursal_id", suc['id'])\
+                            .gte("fecha", str(fecha_desde))\
+                            .lte("fecha", str(fecha_hasta))\
+                            .eq("tipo", "venta")\
+                            .execute()
                         
-                        # Agrupar por sucursal (vectorizado)
-                        df_ventas = df_movimientos[df_movimientos['tipo'] == 'venta']
+                        total_cajas_mes = sum([m['monto'] for m in movimientos.data]) if movimientos.data else 0.0
                         
-                        resumen_cajas = df_ventas.groupby('sucursal_id')['monto'].sum().reset_index()
-                        resumen_cajas.columns = ['sucursal_id', 'total_cajas']
+                        # Obtener datos del CRM del mes
+                        crm_data = supabase.table("crm_datos_diarios")\
+                            .select("total_ventas_crm, cantidad_tickets")\
+                            .eq("sucursal_id", suc['id'])\
+                            .gte("fecha", str(fecha_desde))\
+                            .lte("fecha", str(fecha_hasta))\
+                            .execute()
                         
-                        resumen_crm = df_crm.groupby('sucursal_id').agg({
-                            'total_ventas_crm': 'sum',
-                            'cantidad_tickets': 'sum'
-                        }).reset_index()
+                        total_crm_mes = sum([d['total_ventas_crm'] for d in crm_data.data]) if crm_data.data else 0.0
+                        tickets_mes = sum([d['cantidad_tickets'] for d in crm_data.data]) if crm_data.data else 0
+                        dias_con_datos_crm = len(crm_data.data) if crm_data.data else 0
                         
-                        # Merge de resultados
-                        df_mensual = resumen_cajas.merge(resumen_crm, on='sucursal_id', how='outer').fillna(0)
-                        
-                        # Agregar nombres de sucursales
-                        df_mensual['sucursal_nombre'] = df_mensual['sucursal_id'].apply(
-                            lambda x: next((s['nombre'] for s in sucursales if s['id'] == x), 'N/A')
-                        )
-                        
-                        # Calcular diferencias
-                        df_mensual['diferencia'] = df_mensual['total_cajas'] - df_mensual['total_ventas_crm']
-                        df_mensual['diferencia_porcentaje'] = df_mensual.apply(
-                            lambda row: (abs(row['diferencia']) / row['total_ventas_crm'] * 100) if row['total_ventas_crm'] > 0 else 0,
-                            axis=1
-                        )
+                        diferencia_mes = total_cajas_mes - total_crm_mes
+                        porcentaje_mes = (abs(diferencia_mes) / total_crm_mes * 100) if total_crm_mes > 0 else 0
                         
                         # Determinar estado
-                        def determinar_estado(row):
-                            if row['total_ventas_crm'] == 0:
-                                return "Sin datos CRM"
-                            elif abs(row['diferencia']) < 1000:
-                                return "✅ OK"
-                            elif abs(row['diferencia']) < 5000:
-                                return "⚠️ Revisar"
-                            else:
-                                return "❌ Crítico"
+                        if total_crm_mes == 0:
+                            estado_mes = "Sin datos CRM"
+                        elif abs(diferencia_mes) < 1000:
+                            estado_mes = "✅ OK"
+                        elif abs(diferencia_mes) < 5000:
+                            estado_mes = "⚠️ Revisar"
+                        else:
+                            estado_mes = "❌ Crítico"
                         
-                        df_mensual['estado'] = df_mensual.apply(determinar_estado, axis=1)
+                        resultados_mensual.append({
+                            'Sucursal': suc['nombre'],
+                            'Sistema Cajas': total_cajas_mes,
+                            'Sistema CRM': total_crm_mes,
+                            'Diferencia': diferencia_mes,
+                            'Diferencia %': porcentaje_mes,
+                            'Tickets Mes': tickets_mes,
+                            'Días con CRM': dias_con_datos_crm,
+                            'Estado': estado_mes
+                        })
+                    
+                    # Crear DataFrame
+                    df_concil_mensual = pd.DataFrame(resultados_mensual)
+                    
+                    if not df_concil_mensual.empty:
+                        st.markdown("#### 📊 Resultados de Conciliación Mensual")
+                        mes_nombre = [
+                            "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+                            "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
+                        ][mes_mensual-1]
+                        st.markdown(f"**Período:** {mes_nombre} {año_mensual}")
                         
-                        # Totales generales
-                        total_cajas_mes = df_mensual['total_cajas'].sum()
-                        total_crm_mes = df_mensual['total_ventas_crm'].sum()
-                        diferencia_mes = total_cajas_mes - total_crm_mes
-                        tickets_mes = df_mensual['cantidad_tickets'].sum()
+                        # Métricas generales mensuales
+                        col_met1, col_met2, col_met3, col_met4 = st.columns(4)
                         
-                        col1, col2, col3, col4 = st.columns(4)
-                        col1.metric("💰 Total Cajas", f"${total_cajas_mes:,.2f}")
-                        col2.metric("🖥️ Total CRM", f"${total_crm_mes:,.2f}")
-                        col3.metric("📊 Diferencia", f"${diferencia_mes:,.2f}")
-                        col4.metric("🎫 Tickets", f"{int(tickets_mes)}")
+                        with col_met1:
+                            total_cajas_mes_general = df_concil_mensual['Sistema Cajas'].sum()
+                            st.metric("💼 Total Cajas Mes", f"${total_cajas_mes_general:,.2f}")
+                        
+                        with col_met2:
+                            total_crm_mes_general = df_concil_mensual['Sistema CRM'].sum()
+                            st.metric("💻 Total CRM Mes", f"${total_crm_mes_general:,.2f}")
+                        
+                        with col_met3:
+                            diferencia_mes_general = total_cajas_mes_general - total_crm_mes_general
+                            st.metric(
+                                "📊 Diferencia Mes", 
+                                f"${abs(diferencia_mes_general):,.2f}",
+                                f"{diferencia_mes_general:,.2f}"
+                            )
+                        
+                        with col_met4:
+                            sucursales_ok_mes = len(df_concil_mensual[df_concil_mensual['Estado'] == '✅ OK'])
+                            st.metric("✅ Sucursales OK", f"{sucursales_ok_mes}/{len(df_concil_mensual)}")
                         
                         st.markdown("---")
+                        
+                        # Formatear DataFrame para mostrar
+                        df_display_mensual = df_concil_mensual.copy()
+                        df_display_mensual['Sistema Cajas'] = df_display_mensual['Sistema Cajas'].apply(lambda x: f"${x:,.2f}")
+                        df_display_mensual['Sistema CRM'] = df_display_mensual['Sistema CRM'].apply(lambda x: f"${x:,.2f}")
+                        df_display_mensual['Diferencia'] = df_display_mensual['Diferencia'].apply(lambda x: f"${x:,.2f}")
+                        df_display_mensual['Diferencia %'] = df_display_mensual['Diferencia %'].apply(lambda x: f"{x:.2f}%")
                         
                         # Mostrar tabla
-                        df_display = df_mensual[['sucursal_nombre', 'total_cajas', 'total_ventas_crm', 'diferencia', 
-                                                'diferencia_porcentaje', 'cantidad_tickets', 'estado']].copy()
-                        df_display.columns = ['Sucursal', 'Sistema Cajas', 'Sistema CRM', 'Diferencia', 
-                                             'Diferencia %', 'Tickets', 'Estado']
+                        st.dataframe(
+                            df_display_mensual,
+                            use_container_width=True,
+                            hide_index=True
+                        )
                         
-                        # Formatear
-                        df_display['Sistema Cajas'] = df_display['Sistema Cajas'].apply(lambda x: f"${x:,.2f}")
-                        df_display['Sistema CRM'] = df_display['Sistema CRM'].apply(lambda x: f"${x:,.2f}")
-                        df_display['Diferencia'] = df_display['Diferencia'].apply(lambda x: f"${x:,.2f}")
-                        df_display['Diferencia %'] = df_display['Diferencia %'].apply(lambda x: f"{x:.2f}%")
-                        
-                        st.dataframe(df_display, use_container_width=True, hide_index=True)
-                        
-                        # Descargar CSV
-                        st.markdown("---")
-                        csv_mensual = df_mensual.to_csv(index=False)
+                        # Exportar a CSV
+                        csv_mensual = df_concil_mensual.to_csv(index=False)
                         st.download_button(
                             label="📥 Descargar Informe Mensual (CSV)",
                             data=csv_mensual,
-                            file_name=f"conciliacion_mensual_{mes_seleccionado}_{año_seleccionado}.csv",
-                            mime="text/csv",
-                            use_container_width=True
+                            file_name=f"conciliacion_mensual_{mes_mensual}_{año_mensual}.csv",
+                            mime="text/csv"
                         )
+                    else:
+                        st.warning("No hay datos para mostrar en el período seleccionado")
                 
                 except Exception as e:
                     st.error(f"❌ Error generando informe mensual: {str(e)}")
-                    import traceback
-                    st.code(traceback.format_exc())
         
         # ==================== CONSULTA INDIVIDUAL ====================
         with tab_concil_individual:
             st.markdown("### 🔍 Consulta Individual de Sucursal")
-            st.markdown("Detalle de conciliación para una sucursal específica en un rango de fechas")
+            st.markdown("Compara una sucursal específica en una fecha determinada con información detallada")
             
-            sucursal_consulta = st.selectbox(
-                "Sucursal",
-                options=sucursales,
-                format_func=lambda x: x['nombre'],
-                key="sucursal_consulta_concil"
-            )
+            col_comp1, col_comp2 = st.columns(2)
             
-            col1, col2 = st.columns(2)
-            with col1:
-                fecha_desde_consulta = st.date_input("Fecha desde", value=date.today(), key="fecha_desde_consulta_concil")
-            with col2:
-                fecha_hasta_consulta = st.date_input("Fecha hasta", value=date.today(), key="fecha_hasta_consulta_concil")
+            with col_comp1:
+                fecha_comparacion = st.date_input(
+                    "Fecha a comparar",
+                    value=date.today(),
+                    key="fecha_comparacion_individual"
+                )
             
-            if st.button("📊 Consultar", type="primary", use_container_width=True):
+            with col_comp2:
+                sucursal_comparacion = st.selectbox(
+                    "Sucursal",
+                    options=sucursales_disponibles,
+                    format_func=lambda x: x['nombre'],
+                    key="sucursal_comparacion_individual"
+                )
+            
+            if st.button("🔍 Comparar", type="primary", use_container_width=True):
                 try:
-                    # 🚀 V6.0: Batch fetching
-                    df_movimientos = obtener_movimientos_batch([sucursal_consulta['id']], fecha_desde_consulta, fecha_hasta_consulta)
-                    df_crm = obtener_crm_batch([sucursal_consulta['id']], fecha_desde_consulta, fecha_hasta_consulta)
+                    # Obtener datos del sistema de cajas
+                    movimientos = supabase.table("movimientos_diarios")\
+                    .select("*")\
+                    .eq("sucursal_id", sucursal_comparacion['id'])\
+                    .eq("fecha", str(fecha_comparacion))\
+                    .eq("tipo", "venta")\
+                    .execute()
                     
-                    if df_movimientos.empty and df_crm.empty:
-                        st.warning("⚠️ No hay datos para el período seleccionado")
+                    total_cajas = sum([m['monto'] for m in movimientos.data]) if movimientos.data else 0.0
+                    
+                    # Obtener datos del CRM
+                    crm_data = supabase.table("crm_datos_diarios")\
+                        .select("*")\
+                        .eq("sucursal_id", sucursal_comparacion['id'])\
+                        .eq("fecha", str(fecha_comparacion))\
+                        .execute()
+                    
+                    if crm_data.data:
+                        total_crm = crm_data.data[0]['total_ventas_crm']
+                        tickets = crm_data.data[0]['cantidad_tickets']
+                        
+                        st.markdown("#### 📈 Resultados de la Comparación")
+                        
+                        col_res1, col_res2, col_res3 = st.columns(3)
+                        
+                        with col_res1:
+                            st.metric(
+                                "💼 Sistema de Cajas",
+                                f"${total_cajas:,.2f}",
+                                help="Total de ventas registradas en el sistema de cajas"
+                            )
+                        
+                        with col_res2:
+                            st.metric(
+                                "💻 Sistema CRM",
+                                f"${total_crm:,.2f}",
+                                help="Total de ventas según el CRM"
+                            )
+                        
+                        with col_res3:
+                            diferencia = total_cajas - total_crm
+                            porcentaje = (diferencia / total_crm * 100) if total_crm > 0 else 0
+                            
+                            st.metric(
+                                "📊 Diferencia",
+                                f"${abs(diferencia):,.2f}",
+                                f"{porcentaje:.2f}%",
+                                delta_color="inverse" if diferencia < 0 else "normal"
+                            )
+                        
+                        # Análisis
+                        st.markdown("---")
+                        
+                        if abs(diferencia) < 100:
+                            st.success("✅ Los valores coinciden correctamente (diferencia < $100)")
+                        elif abs(diferencia) < 500:
+                            st.warning(f"⚠️ Diferencia moderada de ${abs(diferencia):,.2f} - Revisar")
+                        else:
+                            st.error(f"❌ Diferencia significativa de ${abs(diferencia):,.2f} - Requiere auditoría")
+                        
+                        # Información adicional
+                        col_info1, col_info2 = st.columns(2)
+                        with col_info1:
+                            st.info(f"🎫 **Tickets emitidos:** {tickets}")
+                            if total_cajas > 0 and tickets > 0:
+                                ticket_promedio = total_cajas / tickets
+                                st.info(f"💵 **Ticket promedio:** ${ticket_promedio:,.2f}")
+                        
+                        with col_info2:
+                            # Obtener sistema CRM
+                            crm_sistema = supabase.table("sucursales_crm")\
+                                .select("sistema_crm")\
+                                .eq("sucursal_id", sucursal_comparacion['id'])\
+                                .single()\
+                                .execute()
+                            
+                            if crm_sistema.data:
+                                st.info(f"💻 **Sistema CRM:** {crm_sistema.data['sistema_crm']}")
                     else:
-                        st.markdown(f"#### 🏪 {sucursal_consulta['nombre']}")
-                        st.markdown(f"**Período:** {fecha_desde_consulta.strftime('%d/%m/%Y')} - {fecha_hasta_consulta.strftime('%d/%m/%Y')}")
-                        
-                        # Calcular por fecha (vectorizado)
-                        df_ventas = df_movimientos[df_movimientos['tipo'] == 'venta']
-                        
-                        resumen_cajas = df_ventas.groupby('fecha')['monto'].sum().reset_index()
-                        resumen_cajas.columns = ['fecha', 'total_cajas']
-                        
-                        # Merge con CRM
-                        df_detalle = resumen_cajas.merge(
-                            df_crm[['fecha', 'total_ventas_crm', 'cantidad_tickets']],
-                            on='fecha',
-                            how='outer'
-                        ).fillna(0)
-                        
-                        # Calcular diferencias
-                        df_detalle['diferencia'] = df_detalle['total_cajas'] - df_detalle['total_ventas_crm']
-                        df_detalle['diferencia_porcentaje'] = df_detalle.apply(
-                            lambda row: (abs(row['diferencia']) / row['total_ventas_crm'] * 100) if row['total_ventas_crm'] > 0 else 0,
-                            axis=1
-                        )
-                        
-                        # Ordenar por fecha
-                        df_detalle = df_detalle.sort_values('fecha')
-                        
-                        # Totales del período
-                        total_cajas_periodo = df_detalle['total_cajas'].sum()
-                        total_crm_periodo = df_detalle['total_ventas_crm'].sum()
-                        diferencia_periodo = total_cajas_periodo - total_crm_periodo
-                        tickets_periodo = df_detalle['cantidad_tickets'].sum()
-                        
-                        col1, col2, col3, col4 = st.columns(4)
-                        col1.metric("💰 Total Cajas", f"${total_cajas_periodo:,.2f}")
-                        col2.metric("🖥️ Total CRM", f"${total_crm_periodo:,.2f}")
-                        col3.metric("📊 Diferencia", f"${diferencia_periodo:,.2f}")
-                        col4.metric("🎫 Tickets", f"{int(tickets_periodo)}")
-                        
-                        st.markdown("---")
-                        
-                        # Tabla detallada
-                        df_display = df_detalle.copy()
-                        df_display['fecha'] = pd.to_datetime(df_display['fecha']).dt.strftime('%d/%m/%Y')
-                        df_display.columns = ['Fecha', 'Sistema Cajas', 'Sistema CRM', 'Tickets', 'Diferencia', 'Diferencia %']
-                        
-                        # Formatear
-                        df_display['Sistema Cajas'] = df_display['Sistema Cajas'].apply(lambda x: f"${x:,.2f}")
-                        df_display['Sistema CRM'] = df_display['Sistema CRM'].apply(lambda x: f"${x:,.2f}")
-                        df_display['Diferencia'] = df_display['Diferencia'].apply(lambda x: f"${x:,.2f}")
-                        df_display['Diferencia %'] = df_display['Diferencia %'].apply(lambda x: f"{x:.2f}%")
-                        
-                        st.dataframe(df_display, use_container_width=True, hide_index=True)
-                        
-                        # Descargar CSV
-                        st.markdown("---")
-                        csv_individual = df_detalle.to_csv(index=False)
-                        st.download_button(
-                            label="📥 Descargar Consulta (CSV)",
-                            data=csv_individual,
-                            file_name=f"conciliacion_{sucursal_consulta['nombre']}_{fecha_desde_consulta}_{fecha_hasta_consulta}.csv",
-                            mime="text/csv",
-                            use_container_width=True
-                        )
+                        st.warning(f"⚠️ No hay datos de CRM cargados para {sucursal_comparacion['nombre']} en la fecha {fecha_comparacion.strftime('%d/%m/%Y')}")
+                        st.info(f"💼 Sistema de Cajas registró: ${total_cajas:,.2f}")
                 
                 except Exception as e:
-                    st.error(f"❌ Error en consulta: {str(e)}")
-                    import traceback
-                    st.code(traceback.format_exc())
+                    st.error(f"❌ Error en la comparación: {str(e)}")
 
 # ==================== TAB 6: MANTENIMIENTO ====================
-# Solo mostrar mantenimiento si el usuario es admin
+# Solo mostrar Mantenimiento si el usuario es admin
 if tab6 is not None:
     with tab6:
-        st.subheader("🔧 Mantenimiento de Datos")
+        st.subheader("🔧 Mantenimiento de Base de Datos")
         
-        st.warning("⚠️ **Atención:** Esta sección es solo para administradores. Los cambios aquí afectan a todo el sistema.")
+        st.warning("⚠️ **Importante:** Esta sección permite editar directamente los datos del sistema. Usa con precaución.")
         
-        # Tabs para diferentes acciones
-        tab_editar, tab_agregar, tab_eliminar = st.tabs(["✏️ Editar", "➕ Agregar", "🗑️ Eliminar"])
+        # Definir las tablas disponibles con sus descripciones
+        tablas_config = {
+            "sucursales": {
+                "nombre": "🏪 Sucursales",
+                "descripcion": "Lista de sucursales/locales del negocio",
+                "columnas_ocultas": ["id"],
+                "columnas_editables": ["nombre", "codigo", "activa"]
+            },
+            "categorias": {
+                "nombre": "📂 Categorías",
+                "descripcion": "Categorías para clasificar ventas y gastos",
+                "columnas_ocultas": ["id"],
+                "columnas_editables": ["nombre", "tipo", "activa"]
+            },
+            "medios_pago": {
+                "nombre": "💳 Métodos de Pago",
+                "descripcion": "Formas de pago disponibles",
+                "columnas_ocultas": ["id"],
+                "columnas_editables": ["nombre", "tipo_aplicable", "activo", "orden"]
+            },
+            "sucursales_crm": {
+                "nombre": "💻 Sistemas CRM por Sucursal",
+                "descripcion": "Asignación de sistemas CRM a sucursales",
+                "columnas_ocultas": ["id"],
+                "columnas_editables": ["sucursal_id", "sistema_crm"]
+            },
+            "movimientos_diarios": {
+                "nombre": "📊 Movimientos Diarios",
+                "descripcion": "Ventas, gastos y sueldos registrados",
+                "columnas_ocultas": ["id"],
+                "columnas_editables": ["sucursal_id", "fecha", "tipo", "categoria_id", "concepto", "monto", "medio_pago_id"]
+            },
+            "crm_datos_diarios": {
+                "nombre": "💼 Datos CRM Diarios",
+                "descripcion": "Datos de ventas desde sistemas CRM",
+                "columnas_ocultas": ["id"],
+                "columnas_editables": ["sucursal_id", "fecha", "total_ventas_crm", "cantidad_tickets", "usuario"]
+            }
+        }
         
         # Selector de tabla
         tabla_seleccionada = st.selectbox(
-            "Selecciona la tabla a administrar",
-            options=["sucursales", "categorias", "medios_pago", "sucursales_crm", "movimientos_diarios", "crm_datos_diarios"],
-            format_func=lambda x: {
-                "sucursales": "🏪 Sucursales",
-                "categorias": "📑 Categorías",
-                "medios_pago": "💳 Medios de Pago",
-                "sucursales_crm": "🖥️ Configuración CRM",
-                "movimientos_diarios": "📋 Movimientos Diarios",
-                "crm_datos_diarios": "💼 Datos CRM Diarios"
-            }[x]
+            "Selecciona la tabla a editar",
+            options=list(tablas_config.keys()),
+            format_func=lambda x: tablas_config[x]["nombre"],
+            key="tabla_mantenimiento"
         )
         
-        # ==================== EDITAR ====================
-        with tab_editar:
-            st.markdown("### ✏️ Editar Registros")
+        st.info(f"📋 **{tablas_config[tabla_seleccionada]['descripcion']}**")
+        
+        # Tabs para diferentes operaciones
+        tab_ver, tab_agregar, tab_eliminar = st.tabs(["👁️ Ver/Editar", "➕ Agregar", "🗑️ Eliminar"])
+        
+        # ==================== VER/EDITAR ====================
+        with tab_ver:
+            st.markdown("### 👁️ Ver y Editar Registros")
             
-            # Filtros para movimientos_diarios y crm_datos_diarios
-            filtro_sucursal = None
-            filtro_fecha_desde = None
-            filtro_fecha_hasta = None
-            
+            # ========== PANEL DE FILTROS (solo para tablas específicas) ==========
             if tabla_seleccionada in ["movimientos_diarios", "crm_datos_diarios"]:
-                st.markdown("#### 🔍 Filtros de Búsqueda")
-                col_filtro1, col_filtro2, col_filtro3 = st.columns(3)
-                
-                with col_filtro1:
-                    filtro_sucursal = st.selectbox(
-                        "Filtrar por Sucursal",
-                        options=["Todas"] + [s['nombre'] for s in sucursales],
-                        key=f"filtro_sucursal_{tabla_seleccionada}"
-                    )
-                
-                with col_filtro2:
-                    filtro_fecha_desde = st.date_input(
-                        "Desde",
-                        value=date.today(),
-                        key=f"filtro_desde_{tabla_seleccionada}"
-                    )
-                
-                with col_filtro3:
-                    filtro_fecha_hasta = st.date_input(
-                        "Hasta",
-                        value=date.today(),
-                        key=f"filtro_hasta_{tabla_seleccionada}"
-                    )
+                with st.expander("🔍 **Filtros de Búsqueda**", expanded=True):
+                    col_filtro1, col_filtro2, col_filtro3 = st.columns([2, 1, 1])
+                    
+                    with col_filtro1:
+                        # Cargar sucursales para el filtro
+                        sucursales_filtro = supabase.table("sucursales")\
+                            .select("id, nombre")\
+                            .eq("activa", True)\
+                            .order("nombre")\
+                            .execute()
+                        
+                        sucursal_opciones = {s['id']: s['nombre'] for s in sucursales_filtro.data}
+                        
+                        sucursal_filtro = st.selectbox(
+                            "🏪 Seleccionar Sucursal",
+                            options=[None] + list(sucursal_opciones.keys()),
+                            format_func=lambda x: "Todas las sucursales" if x is None else sucursal_opciones[x],
+                            key="filtro_sucursal"
+                        )
+                    
+                    with col_filtro2:
+                        fecha_desde = st.date_input(
+                            "📅 Desde",
+                            value=None,
+                            key="filtro_fecha_desde",
+                            format="DD/MM/YYYY"
+                        )
+                    
+                    with col_filtro3:
+                        fecha_hasta = st.date_input(
+                            "📅 Hasta",
+                            value=None,
+                            key="filtro_fecha_hasta",
+                            format="DD/MM/YYYY"
+                        )
+                    
+                    # Botones de filtros
+                    col_btn1, col_btn2 = st.columns([1, 4])
+                    with col_btn1:
+                        aplicar_filtros = st.button("🔍 Aplicar Filtros", use_container_width=True)
+                    with col_btn2:
+                        if st.button("🔄 Limpiar Filtros", use_container_width=True):
+                            st.session_state.filtro_sucursal = None
+                            st.session_state.filtro_fecha_desde = None
+                            st.session_state.filtro_fecha_hasta = None
+                            st.rerun()
+                    
+                    # Mostrar filtros activos
+                    if sucursal_filtro or fecha_desde or fecha_hasta:
+                        filtros_activos = []
+                        if sucursal_filtro:
+                            filtros_activos.append(f"🏪 {sucursal_opciones[sucursal_filtro]}")
+                        if fecha_desde:
+                            filtros_activos.append(f"📅 Desde: {fecha_desde.strftime('%d/%m/%Y')}")
+                        if fecha_hasta:
+                            filtros_activos.append(f"📅 Hasta: {fecha_hasta.strftime('%d/%m/%Y')}")
+                        
+                        st.info(f"**Filtros activos:** {' | '.join(filtros_activos)}")
+            else:
+                # Para tablas sin filtros, variables default
+                sucursal_filtro = None
+                fecha_desde = None
+                fecha_hasta = None
+            
+            st.markdown("Haz doble clic en una celda para editarla. Los cambios se guardan al presionar el botón.")
             
             try:
-                # 🚀 V6.0: Usar selección específica de columnas
+                # ========== CONSTRUCCIÓN DE QUERY CON O SIN FILTROS ==========
                 query = supabase.table(tabla_seleccionada).select("*")
                 
-                # Aplicar filtros si corresponde
+                # Aplicar filtros si es una tabla que los admite
                 if tabla_seleccionada in ["movimientos_diarios", "crm_datos_diarios"]:
-                    if filtro_sucursal and filtro_sucursal != "Todas":
-                        sucursal_id = next((s['id'] for s in sucursales if s['nombre'] == filtro_sucursal), None)
-                        if sucursal_id:
-                            query = query.eq("sucursal_id", sucursal_id)
+                    # Filtro de sucursal
+                    if sucursal_filtro:
+                        query = query.eq("sucursal_id", sucursal_filtro)
                     
-                    if filtro_fecha_desde:
-                        query = query.gte("fecha", str(filtro_fecha_desde))
+                    # Filtro de fecha desde
+                    if fecha_desde:
+                        query = query.gte("fecha", fecha_desde.isoformat())
                     
-                    if filtro_fecha_hasta:
-                        query = query.lte("fecha", str(filtro_fecha_hasta))
+                    # Filtro de fecha hasta
+                    if fecha_hasta:
+                        query = query.lte("fecha", fecha_hasta.isoformat())
+                    
+                    # Ordenar por fecha descendente
+                    query = query.order("fecha", desc=True)
                 
+                # Ejecutar query
                 result = query.execute()
                 
-                if result.data:
-                    df = pd.DataFrame(result.data)
+                if not result.data:
+                    if tabla_seleccionada in ["movimientos_diarios", "crm_datos_diarios"]:
+                        st.warning("⚠️ No se encontraron registros con los filtros aplicados. Intenta ampliar el rango de fechas o cambiar de sucursal.")
+                    else:
+                        st.info("📭 No hay registros en esta tabla")
+                else:
+                    df_original = pd.DataFrame(result.data)
                     
-                    st.markdown(f"**Total de registros:** {len(df)}")
+                    # Crear copia para edición
+                    df_edit = df_original.copy()
                     
-                    # Mostrar tabla editable
-                    st.info("💡 Edita los valores directamente en la tabla. Los cambios se guardarán al hacer clic en 'Guardar Cambios'")
+                    # Mostrar información
+                    if tabla_seleccionada in ["movimientos_diarios", "crm_datos_diarios"]:
+                        st.markdown(f"**📊 Total de registros encontrados:** {len(df_edit)}")
+                        st.caption("💡 Usa los filtros arriba para reducir la cantidad de registros y encontrar más fácilmente lo que buscas.")
+                    else:
+                        col_info1, col_info2 = st.columns(2)
+                        with col_info1:
+                            st.metric("📊 Total de registros", len(df_edit))
+                        with col_info2:
+                            st.metric("📝 Columnas", len(df_edit.columns))
                     
-                    edited_df = st.data_editor(
-                        df,
+                    st.markdown("---")
+                    
+                    # Editor de datos
+                    df_editado = st.data_editor(
+                        df_edit,
                         use_container_width=True,
+                        num_rows="fixed",
+                        disabled=tablas_config[tabla_seleccionada]["columnas_ocultas"],
                         hide_index=True,
-                        num_rows="fixed"
+                        key=f"editor_{tabla_seleccionada}"
                     )
                     
                     # Detectar cambios
-                    if not df.equals(edited_df):
+                    cambios_detectados = not df_editado.equals(df_original)
+                    
+                    if cambios_detectados:
                         st.warning("⚠️ Hay cambios sin guardar")
                         
-                        if st.button("💾 Guardar Cambios", type="primary", use_container_width=True):
-                            try:
-                                # Detectar filas modificadas
-                                cambios = []
-                                for idx in range(len(df)):
-                                    if not df.iloc[idx].equals(edited_df.iloc[idx]):
-                                        cambios.append(edited_df.iloc[idx].to_dict())
-                                
-                                # Actualizar registros
-                                errores = []
-                                exitosos = 0
-                                
-                                for registro in cambios:
-                                    try:
-                                        registro_id = registro['id']
-                                        # Eliminar el ID del dict para el update
-                                        registro_update = {k: v for k, v in registro.items() if k != 'id'}
+                        col_btn1, col_btn2 = st.columns([1, 3])
+                        
+                        with col_btn1:
+                            if st.button("💾 Guardar Cambios", type="primary", use_container_width=True):
+                                try:
+                                    # Encontrar filas modificadas
+                                    filas_modificadas = []
+                                    updates_batch = []
+                                    
+                                    for idx in df_editado.index:
+                                        if not df_editado.loc[idx].equals(df_original.loc[idx]):
+                                            filas_modificadas.append(idx)
+                                            fila_nueva = df_editado.loc[idx].to_dict()
+                                            updates_batch.append(fila_nueva)
+                                    
+                                    # 🚀 MEJORA: Actualización por lotes cuando sea posible
+                                    errores = []
+                                    exitosos = 0
+                                    
+                                    # Actualizar cada fila (Supabase no tiene upsert masivo con where)
+                                    for fila_nueva in updates_batch:
+                                        registro_id = fila_nueva['id']
+                                        datos_update = {k: v for k, v in fila_nueva.items() if k != 'id'}
                                         
-                                        supabase.table(tabla_seleccionada)\
-                                            .update(registro_update)\
-                                            .eq('id', registro_id)\
-                                            .execute()
-                                        
-                                        exitosos += 1
-                                    except Exception as e:
-                                        errores.append(f"ID {registro_id}: {str(e)}")
+                                        try:
+                                            supabase.table(tabla_seleccionada)\
+                                                .update(datos_update)\
+                                                .eq('id', registro_id)\
+                                                .execute()
+                                            exitosos += 1
+                                        except Exception as e:
+                                            errores.append(f"Registro ID {registro_id}: {str(e)}")
+                                    
+                                    if errores:
+                                        st.error(f"❌ Errores al guardar {len(errores)} registros:")
+                                        for error in errores[:3]:  # Mostrar solo primeros 3
+                                            st.error(f"  • {error}")
+                                        if len(errores) > 3:
+                                            st.error(f"  ... y {len(errores) - 3} errores más")
+                                    
+                                    if exitosos > 0:
+                                        st.toast(f"✅ {exitosos} cambios guardados", icon="✅")
+                                        st.rerun()
                                 
-                                if errores:
-                                    st.error(f"❌ Errores al actualizar {len(errores)} registros:")
-                                    for error in errores:
-                                        st.error(f"  • {error}")
-                                
-                                if exitosos > 0:
-                                    st.toast(f"✅ {exitosos} registros actualizados correctamente", icon="✅")
-                                    st.rerun()
-                            
-                            except Exception as e:
-                                st.error(f"❌ Error al guardar cambios: {str(e)}")
-                else:
-                    st.info("📭 No hay registros en esta tabla")
+                                except Exception as e:
+                                    st.error(f"❌ Error al guardar: {str(e)}")
+                        
+                        with col_btn2:
+                            if st.button("↩️ Cancelar Cambios", use_container_width=True):
+                                st.rerun()
+                    else:
+                        st.info("✅ No hay cambios pendientes")
             
             except Exception as e:
                 st.error(f"❌ Error al cargar datos: {str(e)}")
@@ -1679,7 +1748,7 @@ if tab6 is not None:
         # ==================== AGREGAR ====================
         with tab_agregar:
             st.markdown("### ➕ Agregar Nuevo Registro")
-            st.markdown(f"Tabla: **{tabla_seleccionada}**")
+            st.markdown("Completa los campos y presiona el botón para agregar un nuevo registro.")
             
             with st.form(f"form_agregar_{tabla_seleccionada}"):
                 # Crear campos según la tabla

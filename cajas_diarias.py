@@ -507,7 +507,8 @@ if tab3 is not None:
         with tab_reporte_general:
             st.markdown("### 📊 Reporte General de Movimientos")
             
-            col1, col2, col3 = st.columns(3)
+            # Fila de filtros
+            col1, col2, col3, col4 = st.columns(4)
             
             with col1:
                 fecha_desde = st.date_input("Desde", value=date.today().replace(day=1), key="reporte_desde")
@@ -519,20 +520,71 @@ if tab3 is not None:
                 st.write("")
                 # Solo admin puede ver todas las sucursales
                 if auth.is_admin():
-                    todas_sucursales = st.checkbox("Todas las sucursales", value=False)
+                    todas_sucursales = st.checkbox("Todas las sucursales", value=False, key="todas_suc_reporte")
                 else:
                     todas_sucursales = False
+            
+            with col4:
+                # Selector de Razón Social (solo si es admin y "todas las sucursales" está marcado)
+                if auth.is_admin() and todas_sucursales:
+                    try:
+                        # Obtener razones sociales únicas
+                        razones_result = supabase.table("razon_social")\
+                            .select("razon_social")\
+                            .execute()
+                        
+                        if razones_result.data:
+                            razones_unicas = sorted(list(set([r['razon_social'] for r in razones_result.data])))
+                            razones_opciones = ["Todas"] + razones_unicas
+                            
+                            razon_seleccionada = st.selectbox(
+                                "Razón Social",
+                                options=razones_opciones,
+                                key="razon_social_reporte"
+                            )
+                        else:
+                            razon_seleccionada = "Todas"
+                    except:
+                        razon_seleccionada = "Todas"
+                else:
+                    razon_seleccionada = "Todas"
             
             if st.button("📊 Generar Reporte", type="primary"):
                 with st.spinner("Generando reporte..."):
                     try:
+                        # Obtener IDs de sucursales según filtros
+                        sucursales_ids = []
+                        
+                        if todas_sucursales:
+                            if razon_seleccionada != "Todas":
+                                # Filtrar por razón social
+                                razon_suc_result = supabase.table("razon_social")\
+                                    .select("sucursal_id")\
+                                    .eq("razon_social", razon_seleccionada)\
+                                    .execute()
+                                
+                                if razon_suc_result.data:
+                                    sucursales_ids = [r['sucursal_id'] for r in razon_suc_result.data]
+                                else:
+                                    st.warning(f"No se encontraron sucursales para la razón social: {razon_seleccionada}")
+                                    sucursales_ids = []
+                            # Si es "Todas", no filtramos por sucursal_id (se consultan todas)
+                        else:
+                            # Solo la sucursal seleccionada en el sidebar
+                            sucursales_ids = [sucursal_seleccionada['id']]
+                        
+                        # Construir consulta
                         query = supabase.table("movimientos_diarios")\
                             .select("*, sucursales(nombre), categorias(nombre), medios_pago(nombre)")\
                             .gte("fecha", str(fecha_desde))\
                             .lte("fecha", str(fecha_hasta))
                         
+                        # Aplicar filtro de sucursales si corresponde
                         if not todas_sucursales:
                             query = query.eq("sucursal_id", sucursal_seleccionada['id'])
+                        elif razon_seleccionada != "Todas" and sucursales_ids:
+                            # Filtrar por las sucursales de la razón social seleccionada
+                            query = query.in_("sucursal_id", sucursales_ids)
                         
                         result = query.execute()
                         
@@ -567,8 +619,11 @@ if tab3 is not None:
                                     .gte("fecha", str(fecha_desde))\
                                     .lte("fecha", str(fecha_hasta))
                                 
+                                # Aplicar filtros de sucursal
                                 if not todas_sucursales:
                                     crm_query = crm_query.eq("sucursal_id", sucursal_seleccionada['id'])
+                                elif razon_seleccionada != "Todas" and sucursales_ids:
+                                    crm_query = crm_query.in_("sucursal_id", sucursales_ids)
                                 
                                 crm_result = crm_query.execute()
                                 
@@ -592,6 +647,14 @@ if tab3 is not None:
                             
                             # Resumen general con 6 métricas
                             st.markdown("### 📊 Resumen del Período")
+                            
+                            # Mostrar información del filtro aplicado
+                            if todas_sucursales and razon_seleccionada != "Todas":
+                                st.info(f"📋 Filtrado por Razón Social: **{razon_seleccionada}**")
+                            elif todas_sucursales:
+                                st.info("📋 Mostrando: **Todas las Sucursales**")
+                            else:
+                                st.info(f"📋 Sucursal: **{sucursal_seleccionada['nombre']}**")
                             
                             col1, col2, col3, col4, col5, col6 = st.columns(6)
                             

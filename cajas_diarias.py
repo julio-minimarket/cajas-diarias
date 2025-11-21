@@ -524,29 +524,30 @@ if tab3 is not None:
                     todas_sucursales = st.checkbox("Todas las sucursales", value=False, key="todas_suc_reporte")
                 
                 with col4:
-                    # Selector de Razón Social
+                    # Selector de Razón Social - SIEMPRE mostrar
+                    razones_opciones = ["Todas"]
+                    razon_seleccionada = "Todas"
+                    
                     try:
                         # Obtener razones sociales únicas
                         razones_result = supabase.table("razon_social")\
                             .select("razon_social")\
                             .execute()
                         
-                        if razones_result.data:
+                        if razones_result.data and len(razones_result.data) > 0:
                             razones_unicas = sorted(list(set([r['razon_social'] for r in razones_result.data])))
                             razones_opciones = ["Todas"] + razones_unicas
-                            
-                            razon_seleccionada = st.selectbox(
-                                "Razón Social",
-                                options=razones_opciones,
-                                key="razon_social_reporte",
-                                disabled=not todas_sucursales,
-                                help="Selecciona una razón social para filtrar (requiere 'Todas las sucursales' marcado)"
-                            )
-                        else:
-                            razon_seleccionada = "Todas"
                     except Exception as e:
-                        razon_seleccionada = "Todas"
-                        st.error(f"Error cargando razones sociales: {str(e)}")
+                        st.warning(f"⚠️ No se pudieron cargar las razones sociales: {str(e)}")
+                    
+                    # Mostrar selector SIEMPRE (incluso si falló la carga)
+                    razon_seleccionada = st.selectbox(
+                        "Razón Social",
+                        options=razones_opciones,
+                        key="razon_social_reporte",
+                        disabled=not todas_sucursales,
+                        help="Marca 'Todas las sucursales' para habilitar este filtro"
+                    )
             else:
                 todas_sucursales = False
                 razon_seleccionada = "Todas"

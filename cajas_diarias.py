@@ -278,19 +278,19 @@ def calcular_metricas_dia(movimientos_data, crm_data):
     
     df = pd.DataFrame(movimientos_data)
     
-    # Separar ventas y gastos
-    df_ventas = df[df['tipo'] == 'venta']
-    df_gastos = df[df['tipo'] == 'gasto']
+    # 🔧 FIX: Extraer nombres ANTES de separar ventas y gastos
+    df['categoria_nombre'] = df['categorias'].apply(lambda x: x['nombre'] if x else 'Sin categoría')
+    df['medio_pago_nombre'] = df['medios_pago'].apply(lambda x: x['nombre'] if x else 'Sin medio')
+    
+    # Separar ventas y gastos (ahora ambos tienen las columnas de nombres)
+    df_ventas = df[df['tipo'] == 'venta'].copy()
+    df_gastos = df[df['tipo'] == 'gasto'].copy()
     
     # Calcular totales
     ventas_total = df_ventas['monto'].sum() if len(df_ventas) > 0 else 0.0
     gastos_total = df_gastos['monto'].sum() if len(df_gastos) > 0 else 0.0
     
-    # Extraer medio de pago para efectivo
-    df_ventas['medio_pago_nombre'] = df_ventas['medios_pago'].apply(
-        lambda x: x['nombre'] if x else 'Sin medio'
-    )
-    
+    # Calcular ventas en efectivo
     ventas_efectivo = df_ventas[df_ventas['medio_pago_nombre'] == 'Efectivo']['monto'].sum() \
         if len(df_ventas) > 0 else 0.0
     

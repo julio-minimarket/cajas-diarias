@@ -500,7 +500,7 @@ if tab3 is not None:
         # Crear tabs para diferentes tipos de reportes
         tab_reporte_general, tab_reporte_gastos = st.tabs([
             "📊 Reporte General",
-            "💸 Reporte de Gastos Mensual"
+            "💸 Reporte de Gastos Detallado"
         ])
         
         # ==================== TAB: REPORTE GENERAL ====================
@@ -620,42 +620,29 @@ if tab3 is not None:
         
         # ==================== TAB: REPORTE DE GASTOS MENSUAL ====================
         with tab_reporte_gastos:
-            st.markdown("### 💸 Reporte de Gastos Mensual por Sucursal")
-            st.info("📋 Este reporte muestra el detalle de gastos por categoría para todas las sucursales en un mes específico")
+            st.markdown("### 💸 Reporte Detallado de Gastos por Sucursal")
+            st.info("📋 Este reporte muestra el detalle de gastos por categoría para todas las sucursales en un período específico")
             
-            col_mes1, col_mes2 = st.columns(2)
+            col_fecha1, col_fecha2 = st.columns(2)
             
-            with col_mes1:
-                año_gastos = st.number_input(
-                    "Año",
-                    min_value=2020,
-                    max_value=2030,
-                    value=date.today().year,
-                    key="año_gastos"
+            with col_fecha1:
+                fecha_desde_gastos = st.date_input(
+                    "Fecha Desde",
+                    value=date.today().replace(day=1),
+                    key="fecha_desde_gastos"
                 )
             
-            with col_mes2:
-                mes_gastos = st.selectbox(
-                    "Mes",
-                    options=list(range(1, 13)),
-                    format_func=lambda x: [
-                        "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
-                        "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
-                    ][x-1],
-                    index=date.today().month - 1,
-                    key="mes_gastos"
+            with col_fecha2:
+                fecha_hasta_gastos = st.date_input(
+                    "Fecha Hasta",
+                    value=date.today(),
+                    key="fecha_hasta_gastos"
                 )
             
             if st.button("📊 Generar Reporte de Gastos", type="primary", use_container_width=True):
                 with st.spinner("Generando reporte de gastos..."):
                     try:
-                        # Calcular fechas del mes
-                        from calendar import monthrange
-                        ultimo_dia = monthrange(año_gastos, mes_gastos)[1]
-                        fecha_desde_gastos = date(año_gastos, mes_gastos, 1)
-                        fecha_hasta_gastos = date(año_gastos, mes_gastos, ultimo_dia)
-                        
-                        # Consultar gastos del mes para todas las sucursales
+                        # Consultar gastos del período para todas las sucursales
                         result = supabase.table("movimientos_diarios")\
                             .select("*, sucursales(nombre), categorias(nombre), medios_pago(nombre)")\
                             .eq("tipo", "gasto")\
@@ -673,16 +660,11 @@ if tab3 is not None:
                             df_gastos['categoria_nombre'] = df_gastos['categorias'].apply(lambda x: x['nombre'] if x else 'Sin categoría')
                             df_gastos['medio_pago_nombre'] = df_gastos['medios_pago'].apply(lambda x: x['nombre'] if x else 'Sin medio')
                             
-                            mes_nombre = [
-                                "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
-                                "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
-                            ][mes_gastos-1]
-                            
-                            st.markdown(f"#### 📊 Gastos de {mes_nombre} {año_gastos}")
+                            st.markdown(f"#### 📊 Gastos del {fecha_desde_gastos.strftime('%d/%m/%Y')} al {fecha_hasta_gastos.strftime('%d/%m/%Y')}")
                             
                             # Total general
                             total_general = df_gastos['monto'].sum()
-                            st.metric("💸 Total de Gastos del Mes", f"${total_general:,.2f}")
+                            st.metric("💸 Total de Gastos del Período", f"${total_general:,.2f}")
                             
                             st.markdown("---")
                             
@@ -740,12 +722,12 @@ if tab3 is not None:
                             st.download_button(
                                 label="📥 Descargar Reporte Completo (CSV)",
                                 data=csv_gastos,
-                                file_name=f"reporte_gastos_{mes_nombre}_{año_gastos}.csv",
+                                file_name=f"reporte_gastos_{fecha_desde_gastos}_{fecha_hasta_gastos}.csv",
                                 mime="text/csv",
                                 use_container_width=True
                             )
                         else:
-                            st.warning(f"⚠️ No hay gastos registrados para {mes_nombre} {año_gastos}")
+                            st.warning(f"⚠️ No hay gastos registrados para el período seleccionado")
                     
                     except Exception as e:
                         st.error(f"❌ Error generando reporte de gastos: {str(e)}")

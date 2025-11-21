@@ -507,8 +507,8 @@ if tab3 is not None:
         with tab_reporte_general:
             st.markdown("### 📊 Reporte General de Movimientos")
             
-            # Fila de filtros
-            col1, col2, col3, col4 = st.columns(4)
+            # Primera fila: Fechas
+            col1, col2 = st.columns(2)
             
             with col1:
                 fecha_desde = st.date_input("Desde", value=date.today().replace(day=1), key="reporte_desde")
@@ -516,17 +516,15 @@ if tab3 is not None:
             with col2:
                 fecha_hasta = st.date_input("Hasta", value=date.today(), key="reporte_hasta")
             
-            with col3:
-                st.write("")
-                # Solo admin puede ver todas las sucursales
-                if auth.is_admin():
+            # Segunda fila: Filtros de sucursal (solo para admin)
+            if auth.is_admin():
+                col3, col4 = st.columns(2)
+                
+                with col3:
                     todas_sucursales = st.checkbox("Todas las sucursales", value=False, key="todas_suc_reporte")
-                else:
-                    todas_sucursales = False
-            
-            with col4:
-                # Selector de Razón Social (solo si es admin y "todas las sucursales" está marcado)
-                if auth.is_admin() and todas_sucursales:
+                
+                with col4:
+                    # Selector de Razón Social
                     try:
                         # Obtener razones sociales únicas
                         razones_result = supabase.table("razon_social")\
@@ -540,16 +538,22 @@ if tab3 is not None:
                             razon_seleccionada = st.selectbox(
                                 "Razón Social",
                                 options=razones_opciones,
-                                key="razon_social_reporte"
+                                key="razon_social_reporte",
+                                disabled=not todas_sucursales,
+                                help="Selecciona una razón social para filtrar (requiere 'Todas las sucursales' marcado)"
                             )
                         else:
                             razon_seleccionada = "Todas"
-                    except:
+                    except Exception as e:
                         razon_seleccionada = "Todas"
-                else:
-                    razon_seleccionada = "Todas"
+                        st.error(f"Error cargando razones sociales: {str(e)}")
+            else:
+                todas_sucursales = False
+                razon_seleccionada = "Todas"
             
-            if st.button("📊 Generar Reporte", type="primary"):
+            st.markdown("---")
+            
+            if st.button("📊 Generar Reporte", type="primary", use_container_width=True):
                 with st.spinner("Generando reporte..."):
                     try:
                         # Obtener IDs de sucursales según filtros

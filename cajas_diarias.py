@@ -604,6 +604,125 @@ if tab3 is not None:
                             
                             st.markdown("---")
                             
+                            # ==================== RESUMEN DIARIO ====================
+                            st.markdown("### 📅 Resumen Diario")
+                            st.info("Resumen día por día del período seleccionado")
+                            
+                            # Obtener fechas únicas y ordenarlas
+                            fechas_unicas = sorted(df['fecha'].unique())
+                            
+                            # Crear DataFrame para el resumen diario
+                            resumen_diario_data = []
+                            
+                            for fecha in fechas_unicas:
+                                df_fecha = df[df['fecha'] == fecha]
+                                
+                                # Convertir fecha a datetime para obtener día de la semana
+                                from datetime import datetime
+                                fecha_dt = datetime.strptime(fecha, '%Y-%m-%d')
+                                dias_semana = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
+                                dia_semana = dias_semana[fecha_dt.weekday()]
+                                fecha_formateada = f"{fecha_dt.strftime('%d/%m/%Y')} ({dia_semana})"
+                                
+                                if todas_sucursales:
+                                    # Agrupar por sucursal
+                                    for sucursal in df_fecha['sucursal_nombre'].unique():
+                                        df_suc_fecha = df_fecha[df_fecha['sucursal_nombre'] == sucursal]
+                                        
+                                        # Separar ventas y gastos
+                                        df_ventas_dia = df_suc_fecha[df_suc_fecha['tipo'] == 'venta']
+                                        df_gastos_dia = df_suc_fecha[df_suc_fecha['tipo'] == 'gasto']
+                                        
+                                        # Calcular métricas
+                                        ventas_total_dia = df_ventas_dia['monto'].sum()
+                                        gastos_total_dia = df_gastos_dia['monto'].sum()
+                                        ventas_efectivo_dia = df_ventas_dia[df_ventas_dia['medio_pago_nombre'] == 'Efectivo']['monto'].sum()
+                                        total_tarjetas_dia = ventas_total_dia - ventas_efectivo_dia
+                                        efectivo_entregado_dia = ventas_efectivo_dia - gastos_total_dia
+                                        
+                                        # Obtener tickets del CRM para esta fecha y sucursal
+                                        try:
+                                            crm_dia = supabase.table("crm_datos_diarios")\
+                                                .select("cantidad_tickets")\
+                                                .eq("fecha", fecha)\
+                                                .eq("sucursal_id", df_suc_fecha['sucursal_id'].iloc[0])\
+                                                .execute()
+                                            
+                                            tickets_dia = crm_dia.data[0]['cantidad_tickets'] if crm_dia.data else 0
+                                            ticket_promedio_dia = (ventas_total_dia / tickets_dia) if tickets_dia > 0 else 0
+                                        except:
+                                            tickets_dia = 0
+                                            ticket_promedio_dia = 0
+                                        
+                                        resumen_diario_data.append({
+                                            'Fecha': fecha_formateada,
+                                            'Sucursal': sucursal,
+                                            'Total Tarjetas': total_tarjetas_dia,
+                                            'Total Gastos': gastos_total_dia,
+                                            'Efectivo Entregado': efectivo_entregado_dia,
+                                            'Total Ventas': ventas_total_dia,
+                                            'Tickets': tickets_dia,
+                                            'Ticket Promedio': ticket_promedio_dia
+                                        })
+                                else:
+                                    # Solo una sucursal
+                                    df_ventas_dia = df_fecha[df_fecha['tipo'] == 'venta']
+                                    df_gastos_dia = df_fecha[df_fecha['tipo'] == 'gasto']
+                                    
+                                    ventas_total_dia = df_ventas_dia['monto'].sum()
+                                    gastos_total_dia = df_gastos_dia['monto'].sum()
+                                    ventas_efectivo_dia = df_ventas_dia[df_ventas_dia['medio_pago_nombre'] == 'Efectivo']['monto'].sum()
+                                    total_tarjetas_dia = ventas_total_dia - ventas_efectivo_dia
+                                    efectivo_entregado_dia = ventas_efectivo_dia - gastos_total_dia
+                                    
+                                    # Obtener tickets del CRM
+                                    try:
+                                        crm_dia = supabase.table("crm_datos_diarios")\
+                                            .select("cantidad_tickets")\
+                                            .eq("fecha", fecha)\
+                                            .eq("sucursal_id", sucursal_seleccionada['id'])\
+                                            .execute()
+                                        
+                                        tickets_dia = crm_dia.data[0]['cantidad_tickets'] if crm_dia.data else 0
+                                        ticket_promedio_dia = (ventas_total_dia / tickets_dia) if tickets_dia > 0 else 0
+                                    except:
+                                        tickets_dia = 0
+                                        ticket_promedio_dia = 0
+                                    
+                                    resumen_diario_data.append({
+                                        'Fecha': fecha_formateada,
+                                        'Total Tarjetas': total_tarjetas_dia,
+                                        'Total Gastos': gastos_total_dia,
+                                        'Efectivo Entregado': efectivo_entregado_dia,
+                                        'Total Ventas': ventas_total_dia,
+                                        'Tickets': tickets_dia,
+                                        'Ticket Promedio': ticket_promedio_dia
+                                    })
+                            
+                            # Crear DataFrame y mostrar
+                            df_resumen_diario = pd.DataFrame(resumen_diario_data)
+                            
+                            # Formatear montos
+                            df_resumen_diario_display = df_resumen_diario.copy()
+                            df_resumen_diario_display['Total Tarjetas'] = df_resumen_diario_display['Total Tarjetas'].apply(lambda x: f"${x:,.2f}")
+                            df_resumen_diario_display['Total Gastos'] = df_resumen_diario_display['Total Gastos'].apply(lambda x: f"${x:,.2f}")
+                            df_resumen_diario_display['Efectivo Entregado'] = df_resumen_diario_display['Efectivo Entregado'].apply(lambda x: f"${x:,.2f}")
+                            df_resumen_diario_display['Total Ventas'] = df_resumen_diario_display['Total Ventas'].apply(lambda x: f"${x:,.2f}")
+                            df_resumen_diario_display['Ticket Promedio'] = df_resumen_diario_display['Ticket Promedio'].apply(lambda x: f"${x:,.2f}")
+                            
+                            st.dataframe(df_resumen_diario_display, use_container_width=True, hide_index=True)
+                            
+                            # Botón para descargar resumen diario
+                            csv_diario = df_resumen_diario.to_csv(index=False)
+                            st.download_button(
+                                label="📥 Descargar Resumen Diario (CSV)",
+                                data=csv_diario,
+                                file_name=f"resumen_diario_{fecha_desde}_{fecha_hasta}.csv",
+                                mime="text/csv"
+                            )
+                            
+                            st.markdown("---")
+                            
                             # Tabla resumen por sucursal
                             if todas_sucursales:
                                 st.markdown("### 🏪 Resumen por Sucursal")

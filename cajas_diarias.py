@@ -543,18 +543,64 @@ if tab3 is not None:
                             df['categoria_nombre'] = df['categorias'].apply(lambda x: x['nombre'] if x else 'Sin categoría')
                             df['medio_pago_nombre'] = df['medios_pago'].apply(lambda x: x['nombre'] if x else 'Sin medio')
                             
-                            # Resumen general
+                            # Separar ventas y gastos
+                            df_ventas = df[df['tipo'] == 'venta']
+                            df_gastos = df[df['tipo'] == 'gasto']
+                            
+                            # Calcular totales
+                            ventas_total = df_ventas['monto'].sum() if len(df_ventas) > 0 else 0.0
+                            gastos_total = df_gastos['monto'].sum() if len(df_gastos) > 0 else 0.0
+                            
+                            # Ventas en efectivo
+                            ventas_efectivo = df_ventas[df_ventas['medio_pago_nombre'] == 'Efectivo']['monto'].sum() if len(df_ventas) > 0 else 0.0
+                            
+                            # Total Tarjetas
+                            total_tarjetas = ventas_total - ventas_efectivo
+                            
+                            # Efectivo Entregado
+                            efectivo_entregado = ventas_efectivo - gastos_total
+                            
+                            # Obtener tickets del CRM para el período
+                            try:
+                                crm_query = supabase.table("crm_datos_diarios")\
+                                    .select("cantidad_tickets")\
+                                    .gte("fecha", str(fecha_desde))\
+                                    .lte("fecha", str(fecha_hasta))
+                                
+                                if not todas_sucursales:
+                                    crm_query = crm_query.eq("sucursal_id", sucursal_seleccionada['id'])
+                                
+                                crm_result = crm_query.execute()
+                                
+                                cantidad_tickets = sum([r['cantidad_tickets'] for r in crm_result.data]) if crm_result.data else 0
+                                ticket_promedio = (ventas_total / cantidad_tickets) if cantidad_tickets > 0 else 0.0
+                            except:
+                                cantidad_tickets = 0
+                                ticket_promedio = 0.0
+                            
+                            # CSS personalizado para reducir tamaño de métricas
+                            st.markdown("""
+                                <style>
+                                    [data-testid="stMetricValue"] {
+                                        font-size: 1.3rem !important;
+                                    }
+                                    [data-testid="stMetricLabel"] {
+                                        font-size: 0.9rem !important;
+                                    }
+                                </style>
+                            """, unsafe_allow_html=True)
+                            
+                            # Resumen general con 6 métricas
                             st.markdown("### 📊 Resumen del Período")
                             
-                            col1, col2, col3 = st.columns(3)
+                            col1, col2, col3, col4, col5, col6 = st.columns(6)
                             
-                            ventas = df[df['tipo']=='venta']['monto'].sum()
-                            gastos = df[df['tipo']=='gasto']['monto'].sum()
-                            neto = ventas - gastos
-                            
-                            col1.metric("💰 Total Ventas", f"${ventas:,.2f}")
-                            col2.metric("💸 Total Gastos", f"${gastos:,.2f}")
-                            col3.metric("📊 Neto", f"${neto:,.2f}")
+                            col1.metric("💳 Total Tarjetas", f"${total_tarjetas:,.2f}")
+                            col2.metric("💸 Total de Gastos", f"${gastos_total:,.2f}")
+                            col3.metric("🏦 Efectivo Entregado", f"${efectivo_entregado:,.2f}")
+                            col4.metric("💰 Total Ventas", f"${ventas_total:,.2f}")
+                            col5.metric("🎫 Tickets", f"{cantidad_tickets}")
+                            col6.metric("💵 Ticket Promedio", f"${ticket_promedio:,.2f}")
                             
                             st.markdown("---")
                             

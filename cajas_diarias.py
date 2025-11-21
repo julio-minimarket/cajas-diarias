@@ -109,7 +109,7 @@ def obtener_sucursales():
     try:
         # Solo traemos las columnas que realmente necesitamos
         result = supabase.table("sucursales")\
-            .select("id, nombre, codigo, activa, razon_social")\
+            .select("id, nombre, codigo, activa")\
             .eq("activa", True)\
             .order("nombre")\
             .execute()
@@ -821,29 +821,12 @@ if tab3 is not None:
             # Opciones de filtrado
             todas_sucursales = st.checkbox("📋 Incluir todas las sucursales", value=False)
             
-            # Filtro adicional por razón social si se incluyen todas las sucursales
-            razon_seleccionada = "Todas"
-            sucursales_ids = []
-            if todas_sucursales:
-                razones_sociales = list(set([s.get('razon_social', 'Sin razón social') for s in sucursales if s.get('razon_social')]))
-                if razones_sociales:
-                    razon_seleccionada = st.selectbox(
-                        "Filtrar por Razón Social",
-                        options=["Todas"] + razones_sociales,
-                        key="razon_social_reporte"
-                    )
-                    if razon_seleccionada != "Todas":
-                        sucursales_ids = [s['id'] for s in sucursales if s.get('razon_social') == razon_seleccionada]
-            
             if st.button("📊 Generar Reporte", type="primary", use_container_width=True):
                 with st.spinner("Generando reporte..."):
                     try:
                         # 🚀 V6.0: Usar batch fetching optimizado
                         if todas_sucursales:
-                            if razon_seleccionada != "Todas" and sucursales_ids:
-                                ids_consulta = sucursales_ids
-                            else:
-                                ids_consulta = [s['id'] for s in sucursales]
+                            ids_consulta = [s['id'] for s in sucursales]
                         else:
                             ids_consulta = [sucursal_seleccionada['id']]
                         
@@ -895,9 +878,7 @@ if tab3 is not None:
                             st.markdown("### 📊 Resumen del Período")
                             
                             # Mostrar información del filtro aplicado
-                            if todas_sucursales and razon_seleccionada != "Todas":
-                                st.info(f"📋 Filtrado por Razón Social: **{razon_seleccionada}**")
-                            elif todas_sucursales:
+                            if todas_sucursales:
                                 st.info("📋 Mostrando: **Todas las Sucursales**")
                             else:
                                 st.info(f"📋 Sucursal: **{sucursal_seleccionada['nombre']}**")

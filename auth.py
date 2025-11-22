@@ -1,8 +1,25 @@
 # auth.py
 import streamlit as st
 from supabase import create_client, Client
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 import os
+import pytz  # 🌍 AGREGADO: Para manejar timezone de Argentina
+
+# 🌍 NUEVO: Configuración de zona horaria de Argentina
+ARGENTINA_TZ = pytz.timezone('America/Argentina/Buenos_Aires')
+
+def obtener_fecha_argentina():
+    """
+    🌍 NUEVO: Obtiene la fecha actual en zona horaria de Argentina (UTC-3).
+    
+    Evita el problema de desfase cuando el servidor está en UTC.
+    Por ejemplo, a las 21:30 del día 21 en Argentina, el servidor en UTC
+    ya está en el día 22 (00:30 UTC).
+    
+    Returns:
+        date: Fecha actual en Argentina
+    """
+    return datetime.now(ARGENTINA_TZ).date()
 
 def init_supabase() -> Client:
     """Inicializa cliente de Supabase"""
@@ -136,7 +153,7 @@ def puede_cargar_fecha(fecha_seleccionada, rol_usuario):
     Valida si el usuario puede cargar una fecha específica
     Retorna: (puede: bool, mensaje_error: str)
     """
-    hoy = date.today()
+    hoy = obtener_fecha_argentina()  # 🌍 CORREGIDO: Usar timezone de Argentina
     ayer = hoy - timedelta(days=1)
     
     # Admin puede cargar cualquier fecha
@@ -153,7 +170,7 @@ def obtener_selector_fecha():
     """
     Retorna el widget de fecha apropiado según el rol del usuario
     """
-    hoy = date.today()
+    hoy = obtener_fecha_argentina()  # 🌍 CORREGIDO: Usar timezone de Argentina
     ayer = hoy - timedelta(days=1)
     
     if is_admin():
@@ -200,7 +217,7 @@ def mostrar_cambio_password():
     """
     Widget para cambiar contraseña
     """
-    st.subheader("🔑 Cambiar Contraseña")
+    st.subheader("🔒 Cambiar Contraseña")
     
     with st.form("cambiar_password_form"):
         password_actual = st.text_input("Contraseña actual", type="password")
@@ -259,7 +276,7 @@ def mostrar_info_usuario_sidebar():
         st.markdown("---")
         
         # Botones de acción
-        if st.button("🔑 Cambiar Contraseña", use_container_width=True, key="btn_cambiar_pwd"):
+        if st.button("🔒 Cambiar Contraseña", use_container_width=True, key="btn_cambiar_pwd"):
             st.session_state.mostrar_cambio_pwd = True
             st.rerun()
         

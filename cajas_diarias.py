@@ -42,6 +42,16 @@ except:
 from supabase import create_client, Client
 import auth  # Importar módulo de autenticación
 
+from datetime import date, datetime
+import pytz
+
+# Usar la misma configuración que auth.py
+ARGENTINA_TZ = pytz.timezone('America/Argentina/Buenos_Aires')
+
+def obtener_fecha_argentina():
+    """Obtiene la fecha actual en timezone de Argentina"""
+    return datetime.now(ARGENTINA_TZ).date()
+
 # Configuración de página (DEBE ir primero)
 st.set_page_config(
     page_title="Cajas Diarias",
@@ -1965,7 +1975,7 @@ if tab6 is not None:
                         sucursal_options = {s['id']: s['nombre'] for s in sucursales_data.data}
                         nuevo_registro['sucursal_id'] = st.selectbox("Sucursal *", options=list(sucursal_options.keys()), format_func=lambda x: sucursal_options[x])
                     
-                    nuevo_registro['fecha'] = st.date_input("Fecha *", value=date.today())
+                    nuevo_registro['fecha'] = st.date_input("Fecha *", value=obtener_fecha_argentina())
                     nuevo_registro['tipo'] = st.selectbox("Tipo *", ["venta", "gasto"])
                     
                     if categorias_data.data:
@@ -1988,7 +1998,7 @@ if tab6 is not None:
                         sucursal_options = {s['id']: s['nombre'] for s in sucursales_data.data}
                         nuevo_registro['sucursal_id'] = st.selectbox("Sucursal *", options=list(sucursal_options.keys()), format_func=lambda x: sucursal_options[x])
                     
-                    nuevo_registro['fecha'] = st.date_input("Fecha *", value=date.today())
+                    nuevo_registro['fecha'] = st.date_input("Fecha *", value=obtener_fecha_argentina())
                     nuevo_registro['total_ventas_crm'] = st.number_input("Total Ventas CRM *", min_value=0.0, step=0.01, format="%.2f")
                     nuevo_registro['cantidad_tickets'] = st.number_input("Cantidad de Tickets *", min_value=0, step=1)
                     nuevo_registro['usuario'] = st.session_state.user['nombre']

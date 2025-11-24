@@ -1,4 +1,4 @@
-# cajas_diarias.py - VERSIÓN 6.0 - FASE 1 OPTIMIZADA
+# cajas_diarias.py - VERSIÓN 6.1 - FASE 1 OPTIMIZADA + CACHÉ AGRESIVO
 #
 # 🚀 MEJORAS FASE 1 - PERFORMANCE INMEDIATAS:
 # 
@@ -7,8 +7,8 @@
 #    - Logging centralizado de errores
 #
 # ✅ 2. Funciones cacheadas adicionales
-#    - obtener_movimientos_fecha() con caché 30min
-#    - obtener_datos_crm_fecha() con caché 30min
+#    - obtener_movimientos_fecha() con caché 30 segundos
+#    - obtener_datos_crm_fecha() con caché 30 segundos
 #    - obtener_resumen_movimientos() optimizado
 #
 # ✅ 3. Optimización de consultas SQL
@@ -24,7 +24,13 @@
 #    - Cálculos centralizados
 #    - Reutilización de código
 #
-# IMPACTO ESPERADO: 30-40% mejora en velocidad de carga
+# 🆕 6. CACHÉ AGRESIVO (NUEVO)
+#    - TTL reducido de 1 hora → 30 segundos
+#    - Botones "🔄 Actualizar Datos" en todas las secciones
+#    - Actualización casi en tiempo real
+#    - Botón global de limpieza de caché en sidebar
+#
+# IMPACTO ESPERADO: 30-40% mejora en velocidad de carga + actualización instantánea
 #
 import streamlit as st
 import pandas as pd
@@ -124,19 +130,19 @@ def manejar_error_supabase(mensaje_personalizado=None):
 
 # ==================== FUNCIONES BÁSICAS (CON DECORADOR) ====================
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=30)  # 30 segundos - actualización casi instantánea
 @manejar_error_supabase("Error al cargar sucursales")
 def obtener_sucursales():
-    """Obtiene sucursales activas. Usa caché de 1 hora."""
+    """Obtiene sucursales activas. Usa caché de 30 segundos."""
     result = supabase.table("sucursales").select("*").eq("activa", True).order("nombre").execute()
     if not result.data:
         st.warning("⚠️ No se encontraron sucursales activas en la base de datos")
     return result.data
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=30)  # 30 segundos - actualización casi instantánea
 @manejar_error_supabase("Error al cargar categorías")
 def obtener_categorias(tipo):
-    """Obtiene categorías activas por tipo. Usa caché de 1 hora."""
+    """Obtiene categorías activas por tipo. Usa caché de 30 segundos."""
     result = supabase.table("categorias")\
         .select("*")\
         .eq("tipo", tipo)\
@@ -144,7 +150,7 @@ def obtener_categorias(tipo):
         .execute()
     return result.data
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=30)  # 30 segundos - actualización casi instantánea
 @manejar_error_supabase("Error al cargar medios de pago")
 def obtener_medios_pago(tipo):
     """
@@ -166,12 +172,12 @@ def obtener_medios_pago(tipo):
 
 # ==================== NUEVAS FUNCIONES OPTIMIZADAS (FASE 1) ====================
 
-@st.cache_data(ttl=1800)  # 🆕 30 minutos de caché
+@st.cache_data(ttl=30)  # 30 segundos - actualización casi instantánea
 @manejar_error_supabase("Error al cargar movimientos")
 def obtener_movimientos_fecha(sucursal_id, fecha):
     """
     🆕 FASE 1: Obtiene movimientos de una sucursal para una fecha específica.
-    Optimizado con caché de 30 minutos y joins eficientes.
+    Optimizado con caché de 30 segundos y joins eficientes.
     
     Args:
         sucursal_id: ID de la sucursal
@@ -187,12 +193,12 @@ def obtener_movimientos_fecha(sucursal_id, fecha):
         .execute()
     return result.data
 
-@st.cache_data(ttl=1800)  # 🆕 30 minutos de caché
+@st.cache_data(ttl=30)  # 30 segundos - actualización casi instantánea
 @manejar_error_supabase("Error al cargar datos CRM")
 def obtener_datos_crm_fecha(sucursal_id, fecha):
     """
     🆕 FASE 1: Obtiene datos CRM de una sucursal para una fecha específica.
-    Solo obtiene el campo necesario (cantidad_tickets).
+    Solo obtiene el campo necesario (cantidad_tickets). Caché de 30 segundos.
     
     Args:
         sucursal_id: ID de la sucursal
@@ -208,12 +214,12 @@ def obtener_datos_crm_fecha(sucursal_id, fecha):
         .execute()
     return result.data
 
-@st.cache_data(ttl=1800)  # 🆕 30 minutos de caché
+@st.cache_data(ttl=30)  # 30 segundos - actualización casi instantánea
 @manejar_error_supabase("Error al obtener resumen de movimientos")
 def obtener_resumen_movimientos(sucursal_ids, fecha_desde, fecha_hasta):
     """
     🆕 FASE 1: Obtiene resumen de movimientos para un período.
-    OPTIMIZADO: Solo obtiene campos necesarios, no todos los datos.
+    OPTIMIZADO: Solo obtiene campos necesarios. Caché de 30 segundos.
     
     Args:
         sucursal_ids: Lista de IDs de sucursales (None = todas)
@@ -235,11 +241,11 @@ def obtener_resumen_movimientos(sucursal_ids, fecha_desde, fecha_hasta):
     result = query.execute()
     return result.data
 
-@st.cache_data(ttl=1800)  # 🆕 30 minutos de caché
+@st.cache_data(ttl=30)  # 30 segundos - actualización casi instantánea
 @manejar_error_supabase("Error al obtener datos CRM del período")
 def obtener_datos_crm_periodo(sucursal_ids, fecha_desde, fecha_hasta):
     """
-    🆕 FASE 1: Obtiene datos CRM para un período específico.
+    🆕 FASE 1: Obtiene datos CRM para un período específico. Caché de 30 segundos.
     Solo campos necesarios para cálculos.
     
     Args:
@@ -374,6 +380,21 @@ fecha_mov = auth.obtener_selector_fecha()
 
 # Mostrar información del usuario
 auth.mostrar_info_usuario_sidebar()
+
+# ==================== INFORMACIÓN SOBRE CACHÉ Y ACTUALIZACIÓN ====================
+with st.sidebar.expander("ℹ️ Actualización de Datos", expanded=False):
+    st.info("""
+    **Actualización automática:** 30 segundos
+    
+    Si haces cambios en Supabase:
+    1. Click en **🔄 Actualizar Datos** (en cada sección)
+    2. O espera 30 segundos
+    3. O presiona **F5**
+    """)
+    if st.button("🔄 Limpiar Todo el Caché", use_container_width=True, key="limpiar_cache_global"):
+        st.cache_data.clear()
+        st.success("✅ Caché limpiado completamente")
+        st.rerun()
 
 # ==================== CAMBIO DE CONTRASEÑA ====================
 if st.session_state.get('mostrar_cambio_pwd', False):
@@ -534,7 +555,15 @@ with tab1:
 
 # ==================== TAB 2: RESUMEN (OPTIMIZADO) ====================
 with tab2:
-    st.subheader(f"📊 Resumen del {fecha_mov.strftime('%d/%m/%Y')} - {sucursal_seleccionada['nombre']}")
+    # Encabezado con botón de actualizar
+    col_header1, col_header2 = st.columns([4, 1])
+    with col_header1:
+        st.subheader(f"📊 Resumen del {fecha_mov.strftime('%d/%m/%Y')} - {sucursal_seleccionada['nombre']}")
+    with col_header2:
+        if st.button("🔄 Actualizar", help="Recarga los datos desde Supabase", key="actualizar_resumen"):
+            st.cache_data.clear()
+            st.success("✅ Caché limpiado")
+            st.rerun()
     
     try:
         # 🆕 USAR FUNCIONES OPTIMIZADAS CON CACHÉ
@@ -691,7 +720,15 @@ if tab3 is not None:
         
         # ==================== TAB: REPORTE GENERAL ====================
         with tab_reporte_general:
-            st.markdown("### 📊 Reporte General de Movimientos")
+            # Encabezado con botón de actualizar
+            col_header1, col_header2 = st.columns([3, 1])
+            with col_header1:
+                st.markdown("### 📊 Reporte General de Movimientos")
+            with col_header2:
+                if st.button("🔄 Actualizar Datos", help="Limpia el caché y recarga los datos desde Supabase", key="actualizar_reporte"):
+                    st.cache_data.clear()
+                    st.success("✅ Caché limpiado")
+                    st.rerun()
             
             # Primera fila: Fechas
             col1, col2 = st.columns(2)
@@ -1039,7 +1076,16 @@ if tab3 is not None:
         
         # ==================== TAB: REPORTE DE GASTOS MENSUAL ====================
         with tab_reporte_gastos:
-            st.markdown("### 💸 Reporte Detallado de Gastos por Sucursal")
+            # Encabezado con botón de actualizar
+            col_header1, col_header2 = st.columns([3, 1])
+            with col_header1:
+                st.markdown("### 💸 Reporte Detallado de Gastos por Sucursal")
+            with col_header2:
+                if st.button("🔄 Actualizar Datos", help="Limpia el caché y recarga los datos desde Supabase", key="actualizar_gastos"):
+                    st.cache_data.clear()
+                    st.success("✅ Caché limpiado")
+                    st.rerun()
+            
             st.info("📋 Este reporte muestra el detalle de gastos por categoría para todas las sucursales en un período específico")
             
             col_fecha1, col_fecha2 = st.columns(2)

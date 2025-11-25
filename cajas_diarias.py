@@ -2121,78 +2121,290 @@ if tab6 is not None:
         # ==================== ELIMINAR ====================
         with tab_eliminar:
             st.markdown("### 🗑️ Eliminar Registros")
-            st.markdown("Selecciona los registros que deseas eliminar de la tabla.")
             
-            st.warning("⚠️ **Cuidado:** Esta acción no se puede deshacer. Asegúrate de seleccionar correctamente.")
+            # Tabs internos para las dos opciones de eliminación
+            sub_tab_rapido, sub_tab_filtros = st.tabs(["⚡ Borrado Rápido por ID", "🔍 Buscar y Borrar"])
             
-            try:
-                # Cargar datos
-                result = supabase.table(tabla_seleccionada).select("*").execute()
+            # ==================== OPCIÓN A: BORRADO RÁPIDO POR ID ====================
+            with sub_tab_rapido:
+                st.markdown("#### ⚡ Borrado Rápido por ID")
+                st.info("💡 **Recomendado cuando:** Ya conoces el ID del registro (puedes buscarlo primero en la pestaña Ver/Editar)")
                 
-                if result.data:
-                    df_eliminar = pd.DataFrame(result.data)
-                    
-                    # Mostrar tabla para selección
-                    st.dataframe(df_eliminar, use_container_width=True, hide_index=True)
-                    
-                    st.markdown("---")
-                    
-                    # Input para IDs a eliminar
-                    ids_eliminar = st.text_input(
-                        "IDs a eliminar (separados por comas)",
-                        placeholder="Ej: 1,2,3",
-                        help="Ingresa los IDs de los registros que deseas eliminar, separados por comas"
-                    )
-                    
-                    if ids_eliminar:
-                        try:
-                            # Convertir a lista de integers
-                            lista_ids = [int(id.strip()) for id in ids_eliminar.split(',')]
-                            
-                            # Mostrar registros a eliminar
-                            registros_eliminar = df_eliminar[df_eliminar['id'].isin(lista_ids)]
-                            
-                            if not registros_eliminar.empty:
-                                st.markdown("**Registros que se eliminarán:**")
-                                st.dataframe(registros_eliminar, use_container_width=True, hide_index=True)
-                                
-                                col_confirmar1, col_confirmar2 = st.columns([1, 3])
-                                
-                                with col_confirmar1:
-                                    if st.button("🗑️ Confirmar Eliminación", type="primary", use_container_width=True):
-                                        try:
-                                            errores = []
-                                            exitosos = 0
-                                            
-                                            for registro_id in lista_ids:
-                                                try:
-                                                    supabase.table(tabla_seleccionada)\
-                                                        .delete()\
-                                                        .eq('id', registro_id)\
-                                                        .execute()
-                                                    exitosos += 1
-                                                except Exception as e:
-                                                    errores.append(f"ID {registro_id}: {str(e)}")
-                                            
-                                            if errores:
-                                                st.error(f"❌ Errores al eliminar {len(errores)} registros:")
-                                                for error in errores:
-                                                    st.error(f"  • {error}")
-                                            
-                                            if exitosos > 0:
-                                                st.toast(f"✅ {exitosos} registros eliminados", icon="✅")
-                                                st.rerun()
-                                        
-                                        except Exception as e:
-                                            st.error(f"❌ Error al eliminar: {str(e)}")
-                            else:
-                                st.warning("⚠️ No se encontraron registros con esos IDs")
+                st.warning("⚠️ **Cuidado:** Esta acción no se puede deshacer.")
+                
+                # Input para IDs
+                ids_eliminar_rapido = st.text_input(
+                    "🔢 IDs a eliminar (separados por comas)",
+                    placeholder="Ej: 12345,12346,12347",
+                    help="Ingresa uno o varios IDs separados por comas",
+                    key="ids_eliminar_rapido"
+                )
+                
+                if ids_eliminar_rapido:
+                    try:
+                        # Convertir a lista de integers
+                        lista_ids = [int(id.strip()) for id in ids_eliminar_rapido.split(',')]
                         
-                        except ValueError:
-                            st.error("❌ IDs inválidos. Usa solo números separados por comas")
+                        # Buscar registros en la BD
+                        try:
+                            registros_encontrados = []
+                            for registro_id in lista_ids:
+                                result = supabase.table(tabla_seleccionada)\
+                                    .select("*")\
+                                    .eq('id', registro_id)\
+                                    .execute()
+                                
+                                if result.data:
+                                    registros_encontrados.extend(result.data)
+                            
+                            if registros_encontrados:
+                                df_encontrados = pd.DataFrame(registros_encontrados)
+                                
+                                st.markdown(f"**✅ Se encontraron {len(registros_encontrados)} registros:**")
+                                st.dataframe(df_encontrados, use_container_width=True, hide_index=True)
+                                
+                                # Botón de confirmación
+                                col_conf1, col_conf2 = st.columns([1, 3])
+                                with col_conf1:
+                                    if st.button("🗑️ Confirmar Eliminación", type="primary", use_container_width=True, key="confirmar_rapido"):
+                                        errores = []
+                                        exitosos = 0
+                                        
+                                        for registro_id in lista_ids:
+                                            try:
+                                                supabase.table(tabla_seleccionada)\
+                                                    .delete()\
+                                                    .eq('id', registro_id)\
+                                                    .execute()
+                                                exitosos += 1
+                                            except Exception as e:
+                                                errores.append(f"ID {registro_id}: {str(e)}")
+                                        
+                                        if errores:
+                                            st.error(f"❌ Errores al eliminar {len(errores)} registros:")
+                                            for error in errores:
+                                                st.error(f"  • {error}")
+                                        
+                                        if exitosos > 0:
+                                            st.success(f"✅ {exitosos} registros eliminados exitosamente")
+                                            st.cache_data.clear()
+                                            st.rerun()
+                            else:
+                                st.warning("⚠️ No se encontraron registros con esos IDs en la tabla")
+                        
+                        except Exception as e:
+                            st.error(f"❌ Error al buscar registros: {str(e)}")
+                    
+                    except ValueError:
+                        st.error("❌ IDs inválidos. Usa solo números separados por comas (Ej: 123,456)")
+            
+            # ==================== OPCIÓN B: BUSCAR Y BORRAR CON FILTROS ====================
+            with sub_tab_filtros:
+                st.markdown("#### 🔍 Buscar y Borrar con Filtros")
+                st.info("💡 **Recomendado cuando:** No conoces el ID y necesitas buscar por fecha, sucursal, monto, etc.")
+                
+                # Solo para tabla movimientos_diarios
+                if tabla_seleccionada == "movimientos_diarios":
+                    st.markdown("##### Filtros de Búsqueda")
+                    
+                    col_f1, col_f2, col_f3 = st.columns(3)
+                    
+                    with col_f1:
+                        fecha_filtro = st.date_input(
+                            "📅 Fecha",
+                            value=None,
+                            help="Selecciona una fecha específica",
+                            key="fecha_filtro_eliminar"
+                        )
+                    
+                    with col_f2:
+                        sucursal_filtro = st.selectbox(
+                            "🏪 Sucursal",
+                            options=[None] + sucursales_disponibles,
+                            format_func=lambda x: "Todas" if x is None else x['nombre'],
+                            help="Filtra por sucursal",
+                            key="sucursal_filtro_eliminar"
+                        )
+                    
+                    with col_f3:
+                        monto_filtro = st.number_input(
+                            "💰 Monto",
+                            value=None,
+                            min_value=0.0,
+                            step=0.01,
+                            format="%.2f",
+                            help="Filtra por monto exacto",
+                            key="monto_filtro_eliminar"
+                        )
+                    
+                    # Filtros adicionales opcionales
+                    with st.expander("🔧 Filtros Adicionales (Opcional)"):
+                        col_fa1, col_fa2 = st.columns(2)
+                        
+                        with col_fa1:
+                            tipo_filtro = st.selectbox(
+                                "📋 Tipo de Movimiento",
+                                options=[None, "venta", "gasto", "sueldo"],
+                                format_func=lambda x: "Todos" if x is None else x.capitalize(),
+                                key="tipo_filtro_eliminar"
+                            )
+                        
+                        with col_fa2:
+                            concepto_filtro = st.text_input(
+                                "📝 Concepto (contiene)",
+                                placeholder="Ej: transferencia",
+                                help="Busca registros que contengan este texto en el concepto",
+                                key="concepto_filtro_eliminar"
+                            )
+                    
+                    # Botón de búsqueda
+                    if st.button("🔍 Buscar Registros", type="primary", key="buscar_filtros"):
+                        try:
+                            # Construir query con filtros
+                            query = supabase.table("movimientos_diarios").select("*")
+                            
+                            # Aplicar filtros
+                            if fecha_filtro:
+                                query = query.eq("fecha", str(fecha_filtro))
+                            
+                            if sucursal_filtro is not None:
+                                query = query.eq("sucursal_id", sucursal_filtro['id'])
+                            
+                            if monto_filtro and monto_filtro > 0:
+                                query = query.eq("monto", monto_filtro)
+                            
+                            if tipo_filtro:
+                                query = query.eq("tipo", tipo_filtro)
+                            
+                            if concepto_filtro:
+                                query = query.ilike("concepto", f"%{concepto_filtro}%")
+                            
+                            # Limitar resultados
+                            query = query.limit(100)
+                            
+                            # Ejecutar búsqueda
+                            result = query.execute()
+                            
+                            if result.data:
+                                # Guardar resultados en session_state
+                                st.session_state['registros_busqueda_eliminar'] = result.data
+                            else:
+                                st.session_state['registros_busqueda_eliminar'] = []
+                                st.warning("⚠️ No se encontraron registros con esos filtros")
+                        
+                        except Exception as e:
+                            st.error(f"❌ Error en la búsqueda: {str(e)}")
+                    
+                    # Mostrar resultados de búsqueda
+                    if 'registros_busqueda_eliminar' in st.session_state and st.session_state['registros_busqueda_eliminar']:
+                        registros = st.session_state['registros_busqueda_eliminar']
+                        df_resultados = pd.DataFrame(registros)
+                        
+                        st.markdown(f"**✅ Se encontraron {len(registros)} registros:**")
+                        
+                        # Mostrar con sucursales legibles
+                        if not df_resultados.empty:
+                            # Agregar columna de sucursal legible
+                            df_display = df_resultados.copy()
+                            sucursales_dict = {s['id']: s['nombre'] for s in sucursales_disponibles}
+                            df_display['sucursal_nombre'] = df_display['sucursal_id'].map(sucursales_dict)
+                            
+                            # Reordenar columnas
+                            cols_orden = ['id', 'fecha', 'sucursal_nombre', 'tipo', 'concepto', 'monto']
+                            cols_disponibles = [col for col in cols_orden if col in df_display.columns]
+                            df_display = df_display[cols_disponibles]
+                            
+                            st.dataframe(df_display, use_container_width=True, hide_index=True)
+                        else:
+                            st.dataframe(df_resultados, use_container_width=True, hide_index=True)
+                        
+                        st.markdown("---")
+                        st.warning("⚠️ **Cuidado:** Esta acción no se puede deshacer.")
+                        
+                        # Opciones de eliminación
+                        col_elim1, col_elim2 = st.columns(2)
+                        
+                        with col_elim1:
+                            st.markdown("**Opción 1: Eliminar por IDs**")
+                            ids_seleccionados = st.text_input(
+                                "IDs a eliminar (separados por comas)",
+                                placeholder="Ej: 1,2,3",
+                                help="De la tabla superior, ingresa los IDs que deseas eliminar",
+                                key="ids_desde_busqueda"
+                            )
+                            
+                            if ids_seleccionados and st.button("🗑️ Eliminar Seleccionados", type="primary", key="eliminar_ids_busqueda"):
+                                try:
+                                    lista_ids = [int(id.strip()) for id in ids_seleccionados.split(',')]
+                                    
+                                    errores = []
+                                    exitosos = 0
+                                    
+                                    for registro_id in lista_ids:
+                                        try:
+                                            supabase.table("movimientos_diarios")\
+                                                .delete()\
+                                                .eq('id', registro_id)\
+                                                .execute()
+                                            exitosos += 1
+                                        except Exception as e:
+                                            errores.append(f"ID {registro_id}: {str(e)}")
+                                    
+                                    if errores:
+                                        st.error(f"❌ Errores al eliminar {len(errores)} registros:")
+                                        for error in errores:
+                                            st.error(f"  • {error}")
+                                    
+                                    if exitosos > 0:
+                                        st.success(f"✅ {exitosos} registros eliminados exitosamente")
+                                        st.session_state['registros_busqueda_eliminar'] = []
+                                        st.cache_data.clear()
+                                        st.rerun()
+                                
+                                except ValueError:
+                                    st.error("❌ IDs inválidos. Usa solo números separados por comas")
+                        
+                        with col_elim2:
+                            st.markdown("**Opción 2: Eliminar TODOS los resultados**")
+                            st.warning(f"⚠️ Se eliminarán **{len(registros)}** registros")
+                            
+                            confirmar_todos = st.checkbox(
+                                "Confirmo que quiero eliminar TODOS los registros mostrados",
+                                key="confirmar_eliminar_todos"
+                            )
+                            
+                            if confirmar_todos and st.button("🗑️ Eliminar TODOS", type="primary", key="eliminar_todos_busqueda"):
+                                try:
+                                    errores = []
+                                    exitosos = 0
+                                    
+                                    for registro in registros:
+                                        try:
+                                            supabase.table("movimientos_diarios")\
+                                                .delete()\
+                                                .eq('id', registro['id'])\
+                                                .execute()
+                                            exitosos += 1
+                                        except Exception as e:
+                                            errores.append(f"ID {registro['id']}: {str(e)}")
+                                    
+                                    if errores:
+                                        st.error(f"❌ Errores al eliminar {len(errores)} registros:")
+                                        for error in errores[:5]:  # Mostrar solo los primeros 5
+                                            st.error(f"  • {error}")
+                                        if len(errores) > 5:
+                                            st.error(f"  ... y {len(errores)-5} errores más")
+                                    
+                                    if exitosos > 0:
+                                        st.success(f"✅ {exitosos} registros eliminados exitosamente")
+                                        st.session_state['registros_busqueda_eliminar'] = []
+                                        st.cache_data.clear()
+                                        st.rerun()
+                                
+                                except Exception as e:
+                                    st.error(f"❌ Error al eliminar: {str(e)}")
                 
                 else:
-                    st.info("📭 No hay registros en esta tabla")
-            
-            except Exception as e:
-                st.error(f"❌ Error al cargar datos: {str(e)}")
+                    # Para otras tablas, mostrar mensaje
+                    st.info("🔍 La búsqueda con filtros solo está disponible para la tabla **movimientos_diarios**")
+                    st.markdown("Para otras tablas, usa la opción **⚡ Borrado Rápido por ID**")

@@ -58,6 +58,35 @@ def obtener_fecha_argentina():
     """Obtiene la fecha actual en timezone de Argentina"""
     return datetime.now(ARGENTINA_TZ).date()
 
+def obtener_fecha_laboral():
+    """
+    Obtiene la fecha laboral correcta considerando horario de negocio.
+    
+    Lógica:
+    - Entre 00:00 y 03:59 → Devuelve el día ANTERIOR (movimientos del día laboral previo)
+    - Desde 04:00 hasta 23:59 → Devuelve el día ACTUAL
+    
+    Ejemplos:
+    - 24/11/25 23:59 → 24/11/25
+    - 25/11/25 00:15 → 24/11/25 (día anterior)
+    - 25/11/25 03:59 → 24/11/25 (día anterior)
+    - 25/11/25 04:00 → 25/11/25 (día actual)
+    
+    Returns:
+        date: Fecha laboral correspondiente
+    """
+    from datetime import timedelta
+    
+    ahora = datetime.now(ARGENTINA_TZ)
+    fecha_actual = ahora.date()
+    hora_actual = ahora.hour
+    
+    # Si es entre medianoche (00:00) y las 03:59, usar día anterior
+    if 0 <= hora_actual < 4:
+        return fecha_actual - timedelta(days=1)
+    else:
+        return fecha_actual
+
 # Configuración de página (DEBE ir primero)
 st.set_page_config(
     page_title="Cajas Diarias",
@@ -375,8 +404,37 @@ sucursal_seleccionada = st.sidebar.selectbox(
     key="selector_sucursal"
 )
 
-# Selector de fecha (con validación según rol)
-fecha_mov = auth.obtener_selector_fecha()
+# Selector de fecha (con validación según rol y lógica de horario de negocio)
+# 🆕 NUEVA LÓGICA: Entre 00:00-03:59 usa el día anterior como fecha por defecto
+ahora_argentina = datetime.now(ARGENTINA_TZ)
+hora_actual = ahora_argentina.hour
+es_horario_madrugada = (0 <= hora_actual < 4)
+
+if auth.is_admin():
+    # Admin puede seleccionar cualquier fecha
+    fecha_mov = st.sidebar.date_input(
+        "📅 Fecha",
+        value=obtener_fecha_laboral(),  # Usa fecha laboral con lógica de madrugada
+        key="fecha_movimiento"
+    )
+else:
+    # Usuario normal solo puede ver fecha actual
+    fecha_laboral = obtener_fecha_laboral()
+    fecha_mov = st.sidebar.date_input(
+        "📅 Fecha",
+        value=fecha_laboral,
+        min_value=fecha_laboral,
+        max_value=fecha_laboral,
+        key="fecha_movimiento",
+        disabled=False
+    )
+    if fecha_mov != fecha_laboral:
+        st.sidebar.warning("⚠️ Solo puedes trabajar con la fecha laboral actual")
+        fecha_mov = fecha_laboral
+
+# Indicador visual de horario de madrugada
+if es_horario_madrugada:
+    st.sidebar.info(f"🌙 Horario de madrugada ({ahora_argentina.strftime('%H:%M')}): Usando fecha del día anterior")
 
 # Mostrar información del usuario
 auth.mostrar_info_usuario_sidebar()

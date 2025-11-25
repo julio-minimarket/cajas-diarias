@@ -1838,19 +1838,18 @@ if tab6 is not None:
                     col_filtro1, col_filtro2, col_filtro3 = st.columns([2, 1, 1])
                     
                     with col_filtro1:
-                        # Cargar sucursales para el filtro
-                        sucursales_filtro = supabase.table("sucursales")\
-                            .select("id, nombre")\
-                            .eq("activa", True)\
-                            .order("nombre")\
-                            .execute()
-                        
-                        sucursal_opciones = {s['id']: s['nombre'] for s in sucursales_filtro.data}
+                        # Usar sucursales cacheadas
+                        try:
+                            sucursales_filtro_data = obtener_sucursales()
+                            sucursal_opciones = {s['id']: s['nombre'] for s in sucursales_filtro_data}
+                        except Exception as e:
+                            st.error(f"Error cargando sucursales: {e}")
+                            sucursal_opciones = {}
                         
                         sucursal_filtro = st.selectbox(
                             "🏪 Seleccionar Sucursal",
                             options=[None] + list(sucursal_opciones.keys()),
-                            format_func=lambda x: "Todas las sucursales" if x is None else sucursal_opciones[x],
+                            format_func=lambda x: "Todas las sucursales" if x is None else sucursal_opciones.get(x, ""),
                             key="filtro_sucursal"
                         )
                     
@@ -2055,36 +2054,62 @@ if tab6 is not None:
                     nuevo_registro['sistema_crm'] = st.text_input("Sistema CRM *", placeholder="Ej: JAZZ, FUDO")
                 
                 elif tabla_seleccionada == "movimientos_diarios":
-                    # Cargar datos necesarios
-                    sucursales_data = supabase.table("sucursales").select("id, nombre").execute()
-                    categorias_data = supabase.table("categorias").select("id, nombre").execute()
-                    medios_data = supabase.table("medios_pago").select("id, nombre").execute()
+                    # Usar datos cacheados para evitar múltiples consultas
+                    try:
+                        sucursales_data = obtener_sucursales()
+                        
+                        # Cargar categorías y medios de pago con manejo de errores
+                        try:
+                            categorias_ventas = obtener_categorias("venta")
+                            categorias_gastos = obtener_categorias("gasto")
+                            categorias_data = categorias_ventas + categorias_gastos
+                        except Exception as e:
+                            st.error(f"Error cargando categorías: {e}")
+                            categorias_data = []
+                        
+                        try:
+                            medios_ventas = obtener_medios_pago("venta")
+                            medios_gastos = obtener_medios_pago("gasto")
+                            medios_data = medios_ventas + medios_gastos
+                        except Exception as e:
+                            st.error(f"Error cargando medios de pago: {e}")
+                            medios_data = []
+                    except Exception as e:
+                        st.error(f"Error cargando datos: {e}")
+                        sucursales_data = []
+                        categorias_data = []
+                        medios_data = []
                     
-                    if sucursales_data.data:
-                        sucursal_options = {s['id']: s['nombre'] for s in sucursales_data.data}
+                    if sucursales_data:
+                        sucursal_options = {s['id']: s['nombre'] for s in sucursales_data}
                         nuevo_registro['sucursal_id'] = st.selectbox("Sucursal *", options=list(sucursal_options.keys()), format_func=lambda x: sucursal_options[x])
                     
                     nuevo_registro['fecha'] = st.date_input("Fecha *", value=obtener_fecha_argentina())
                     nuevo_registro['tipo'] = st.selectbox("Tipo *", ["venta", "gasto"])
                     
-                    if categorias_data.data:
-                        cat_options = {c['id']: c['nombre'] for c in categorias_data.data}
+                    if categorias_data:
+                        cat_options = {c['id']: c['nombre'] for c in categorias_data}
                         nuevo_registro['categoria_id'] = st.selectbox("Categoría *", options=list(cat_options.keys()), format_func=lambda x: cat_options[x])
                     
                     nuevo_registro['concepto'] = st.text_input("Concepto/Detalle")
                     nuevo_registro['monto'] = st.number_input("Monto *", min_value=0.0, step=0.01, format="%.2f")
                     
-                    if medios_data.data:
-                        medio_options = {m['id']: m['nombre'] for m in medios_data.data}
+                    if medios_data:
+                        medio_options = {m['id']: m['nombre'] for m in medios_data}
                         nuevo_registro['medio_pago_id'] = st.selectbox("Método de pago *", options=list(medio_options.keys()), format_func=lambda x: medio_options[x])
                     
                     nuevo_registro['usuario'] = st.session_state.user['nombre']
                 
                 elif tabla_seleccionada == "crm_datos_diarios":
-                    # Cargar sucursales disponibles
-                    sucursales_data = supabase.table("sucursales").select("id, nombre").execute()
-                    if sucursales_data.data:
-                        sucursal_options = {s['id']: s['nombre'] for s in sucursales_data.data}
+                    # Usar datos cacheados
+                    try:
+                        sucursales_data = obtener_sucursales()
+                    except Exception as e:
+                        st.error(f"Error cargando sucursales: {e}")
+                        sucursales_data = []
+                    
+                    if sucursales_data:
+                        sucursal_options = {s['id']: s['nombre'] for s in sucursales_data}
                         nuevo_registro['sucursal_id'] = st.selectbox("Sucursal *", options=list(sucursal_options.keys()), format_func=lambda x: sucursal_options[x])
                     
                     nuevo_registro['fecha'] = st.date_input("Fecha *", value=obtener_fecha_argentina())
@@ -2259,41 +2284,53 @@ if tab6 is not None:
                     
                     # Botón de búsqueda
                     if st.button("🔍 Buscar Registros", type="primary", key="buscar_filtros"):
-                        try:
-                            # Construir query con filtros
-                            query = supabase.table("movimientos_diarios").select("*")
+                        with st.spinner("🔍 Buscando registros..."):
+                            try:
+                                # Validar que al menos un filtro esté aplicado
+                                if not any([fecha_filtro, sucursal_filtro, monto_filtro, tipo_filtro, concepto_filtro]):
+                                    st.warning("⚠️ Por favor aplica al menos un filtro para buscar")
+                                else:
+                                    # Construir query con filtros
+                                    query = supabase.table("movimientos_diarios").select("*")
+                                    
+                                    # Aplicar filtros
+                                    if fecha_filtro:
+                                        query = query.eq("fecha", str(fecha_filtro))
+                                    
+                                    if sucursal_filtro is not None:
+                                        query = query.eq("sucursal_id", sucursal_filtro['id'])
+                                    
+                                    if monto_filtro and monto_filtro > 0:
+                                        query = query.eq("monto", monto_filtro)
+                                    
+                                    if tipo_filtro:
+                                        query = query.eq("tipo", tipo_filtro)
+                                    
+                                    if concepto_filtro:
+                                        query = query.ilike("concepto", f"%{concepto_filtro}%")
+                                    
+                                    # Limitar resultados
+                                    query = query.limit(100)
+                                    
+                                    # Ejecutar búsqueda con timeout
+                                    try:
+                                        result = query.execute()
+                                        
+                                        if result.data:
+                                            # Guardar resultados en session_state
+                                            st.session_state['registros_busqueda_eliminar'] = result.data
+                                            st.success(f"✅ Se encontraron {len(result.data)} registros")
+                                        else:
+                                            st.session_state['registros_busqueda_eliminar'] = []
+                                            st.warning("⚠️ No se encontraron registros con esos filtros")
+                                    
+                                    except Exception as e:
+                                        st.error(f"❌ Error al conectar con la base de datos: {str(e)}")
+                                        st.info("💡 Intenta de nuevo o usa filtros más específicos")
                             
-                            # Aplicar filtros
-                            if fecha_filtro:
-                                query = query.eq("fecha", str(fecha_filtro))
-                            
-                            if sucursal_filtro is not None:
-                                query = query.eq("sucursal_id", sucursal_filtro['id'])
-                            
-                            if monto_filtro and monto_filtro > 0:
-                                query = query.eq("monto", monto_filtro)
-                            
-                            if tipo_filtro:
-                                query = query.eq("tipo", tipo_filtro)
-                            
-                            if concepto_filtro:
-                                query = query.ilike("concepto", f"%{concepto_filtro}%")
-                            
-                            # Limitar resultados
-                            query = query.limit(100)
-                            
-                            # Ejecutar búsqueda
-                            result = query.execute()
-                            
-                            if result.data:
-                                # Guardar resultados en session_state
-                                st.session_state['registros_busqueda_eliminar'] = result.data
-                            else:
+                            except Exception as e:
+                                st.error(f"❌ Error en la búsqueda: {str(e)}")
                                 st.session_state['registros_busqueda_eliminar'] = []
-                                st.warning("⚠️ No se encontraron registros con esos filtros")
-                        
-                        except Exception as e:
-                            st.error(f"❌ Error en la búsqueda: {str(e)}")
                     
                     # Mostrar resultados de búsqueda
                     if 'registros_busqueda_eliminar' in st.session_state and st.session_state['registros_busqueda_eliminar']:

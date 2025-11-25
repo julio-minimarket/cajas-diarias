@@ -393,8 +393,7 @@ with st.sidebar.expander("ℹ️ Actualización de Datos", expanded=False):
     """)
     if st.button("🔄 Limpiar Todo el Caché", use_container_width=True, key="limpiar_cache_global"):
         st.cache_data.clear()
-        st.success("✅ Caché limpiado completamente")
-        st.rerun()
+        st.success("✅ Caché limpiado - Los datos se actualizarán en tu próxima acción")
 
 # ==================== CAMBIO DE CONTRASEÑA ====================
 if st.session_state.get('mostrar_cambio_pwd', False):
@@ -562,8 +561,7 @@ with tab2:
     with col_header2:
         if st.button("🔄 Actualizar", help="Recarga los datos desde Supabase", key="actualizar_resumen"):
             st.cache_data.clear()
-            st.success("✅ Caché limpiado")
-            st.rerun()
+            st.success("✅ Caché limpiado - Selecciona otra fecha o recarga con F5")
     
     try:
         # 🆕 USAR FUNCIONES OPTIMIZADAS CON CACHÉ
@@ -727,8 +725,7 @@ if tab3 is not None:
             with col_header2:
                 if st.button("🔄 Actualizar Datos", help="Limpia el caché y recarga los datos desde Supabase", key="actualizar_reporte"):
                     st.cache_data.clear()
-                    st.success("✅ Caché limpiado")
-                    st.rerun()
+                    st.success("✅ Caché limpiado - Click 'Generar Reporte' para ver datos actualizados")
             
             # Primera fila: Fechas
             col1, col2 = st.columns(2)
@@ -1083,8 +1080,7 @@ if tab3 is not None:
             with col_header2:
                 if st.button("🔄 Actualizar Datos", help="Limpia el caché y recarga los datos desde Supabase", key="actualizar_gastos"):
                     st.cache_data.clear()
-                    st.success("✅ Caché limpiado")
-                    st.rerun()
+                    st.success("✅ Caché limpiado - Click 'Generar Reporte' para ver datos actualizados")
             
             st.info("📋 Este reporte muestra el detalle de gastos por categoría para todas las sucursales en un período específico")
             

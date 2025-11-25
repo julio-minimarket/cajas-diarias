@@ -1262,45 +1262,34 @@ if tab4 is not None:
         # ==================== FORMULARIO DE CARGA ====================
         st.markdown("### 📝 Cargar Datos del CRM")
         
+        # Usar la sucursal seleccionada del sidebar
+        sucursal_crm = sucursal_seleccionada
+        
+        # Obtener información del sistema CRM de la sucursal
+        try:
+            crm_info = supabase.table("sucursales_crm")\
+                .select("sistema_crm")\
+                .eq("sucursal_id", sucursal_crm['id'])\
+                .single()\
+                .execute()
+            
+            sistema_crm = crm_info.data['sistema_crm'] if crm_info.data else "Sin asignar"
+            
+            # Mostrar sucursal seleccionada
+            st.info(f"📍 **Sucursal:** {sucursal_crm['nombre']} | **Sistema CRM:** 💻 {sistema_crm}")
+            
+        except Exception as e:
+            sistema_crm = "Sin asignar"
+            st.info(f"📍 **Sucursal:** {sucursal_crm['nombre']}")
+        
         with st.form("form_crm", clear_on_submit=True):
             col1, col2 = st.columns(2)
             
             with col1:
-                # Cargar sucursales con su sistema CRM
-                try:
-                    sucursales_con_crm = []
-                    for suc in sucursales_disponibles:  # Usar sucursales del usuario
-                        crm_info = supabase.table("sucursales_crm")\
-                            .select("sistema_crm")\
-                            .eq("sucursal_id", suc['id'])\
-                            .single()\
-                            .execute()
-                        
-                        suc_con_crm = suc.copy()
-                        suc_con_crm['sistema_crm'] = crm_info.data['sistema_crm'] if crm_info.data else "Sin asignar"
-                        sucursales_con_crm.append(suc_con_crm)
-                    
-                    # Selector de sucursal con sistema CRM incluido
-                    sucursal_crm = st.selectbox(
-                        "🏪 Sucursal",
-                        options=sucursales_con_crm,
-                        format_func=lambda x: f"{x['nombre']} (💻 {x['sistema_crm']})",
-                        key="sucursal_crm"
-                    )
-                    
-                except Exception as e:
-                    st.error(f"❌ Error cargando sucursales: {str(e)}")
-                    sucursal_crm = st.selectbox(
-                        "🏪 Sucursal",
-                        options=sucursales_disponibles,  # Usar sucursales del usuario
-                        format_func=lambda x: x['nombre'],
-                        key="sucursal_crm"
-                    )
-                
                 # Fecha
                 fecha_crm = st.date_input(
                     "📅 Fecha",
-                    value=date.today(),
+                    value=obtener_fecha_laboral(),  # Usar fecha laboral
                     key="fecha_crm"
                 )
             

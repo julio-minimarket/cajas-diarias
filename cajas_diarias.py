@@ -960,7 +960,7 @@ if tab3 is not None:
             
             st.markdown("---")
             
-            if st.button("📊 Generar Reporte", type="primary", use_container_width=True):
+             if st.button("📊 Generar Reporte", type="primary", use_container_width=True):
                 with st.spinner("Generando reporte..."):
                     try:
                         # Obtener IDs de sucursales según filtros
@@ -984,31 +984,64 @@ if tab3 is not None:
                             # Solo la sucursal seleccionada en el sidebar
                             sucursales_ids = [sucursal_seleccionada['id']]
                         
-                        # Construir consulta
-                        query = supabase.table("movimientos_diarios")\
+                        # 🆕 CAMBIO PRINCIPAL: Hacer DOS consultas separadas para evitar problemas de JOIN
+                        
+                        # ==================== CONSULTA 1: VENTAS ====================
+                        query_ventas = supabase.table("movimientos_diarios")\
                             .select("*, sucursales(nombre), categorias(nombre), medios_pago(nombre)")\
+                            .eq("tipo", "venta")\
                             .gte("fecha", str(fecha_desde))\
                             .lte("fecha", str(fecha_hasta))
                         
-                        # Aplicar filtro de sucursales si corresponde
+                        # Aplicar filtro de sucursales
                         if not todas_sucursales:
-                            query = query.eq("sucursal_id", sucursal_seleccionada['id'])
+                            query_ventas = query_ventas.eq("sucursal_id", sucursal_seleccionada['id'])
                         elif razon_seleccionada != "Todas" and sucursales_ids:
-                            # Filtrar por las sucursales de la razón social seleccionada
-                            query = query.in_("sucursal_id", sucursales_ids)
+                            query_ventas = query_ventas.in_("sucursal_id", sucursales_ids)
                         
-                        result = query.execute()
+                        result_ventas = query_ventas.execute()
                         
-                        if result.data:
-                            df = pd.DataFrame(result.data)
-                            
+                        # ==================== CONSULTA 2: GASTOS ====================
+                        query_gastos = supabase.table("movimientos_diarios")\
+                            .select("*, sucursales(nombre), categorias(nombre), medios_pago(nombre)")\
+                            .eq("tipo", "gasto")\
+                            .gte("fecha", str(fecha_desde))\
+                            .lte("fecha", str(fecha_hasta))
+                        
+                        # Aplicar filtro de sucursales
+                        if not todas_sucursales:
+                            query_gastos = query_gastos.eq("sucursal_id", sucursal_seleccionada['id'])
+                        elif razon_seleccionada != "Todas" and sucursales_ids:
+                            query_gastos = query_gastos.in_("sucursal_id", sucursales_ids)
+                        
+                        result_gastos = query_gastos.execute()
+                        
+                        # ==================== PROCESAR RESULTADOS ====================
+                        
+                        # Crear DataFrames separados
+                        df_ventas = pd.DataFrame(result_ventas.data) if result_ventas.data else pd.DataFrame()
+                        df_gastos = pd.DataFrame(result_gastos.data) if result_gastos.data else pd.DataFrame()
+                        
+                        # Combinar para el resumen diario (opcional)
+                        df = pd.concat([df_ventas, df_gastos], ignore_index=True) if len(df_ventas) > 0 or len(df_gastos) > 0 else pd.DataFrame()
+                        
+                        if len(df) > 0:
+                            # Extraer nombres de las relaciones
                             df['sucursal_nombre'] = df['sucursales'].apply(lambda x: x['nombre'] if x else 'N/A')
                             df['categoria_nombre'] = df['categorias'].apply(lambda x: x['nombre'] if x else 'Sin categoría')
                             df['medio_pago_nombre'] = df['medios_pago'].apply(lambda x: x['nombre'] if x else 'Sin medio')
                             
-                            # Separar ventas y gastos
-                            df_ventas = df[df['tipo'] == 'venta']
-                            df_gastos = df[df['tipo'] == 'gasto']
+                            # Extraer nombres en df_ventas
+                            if len(df_ventas) > 0:
+                                df_ventas['sucursal_nombre'] = df_ventas['sucursales'].apply(lambda x: x['nombre'] if x else 'N/A')
+                                df_ventas['categoria_nombre'] = df_ventas['categorias'].apply(lambda x: x['nombre'] if x else 'Sin categoría')
+                                df_ventas['medio_pago_nombre'] = df_ventas['medios_pago'].apply(lambda x: x['nombre'] if x else 'Sin medio')
+                            
+                            # Extraer nombres en df_gastos
+                            if len(df_gastos) > 0:
+                                df_gastos['sucursal_nombre'] = df_gastos['sucursales'].apply(lambda x: x['nombre'] if x else 'N/A')
+                                df_gastos['categoria_nombre'] = df_gastos['categorias'].apply(lambda x: x['nombre'] if x else 'Sin categoría')
+                                df_gastos['medio_pago_nombre'] = df_gastos['medios_pago'].apply(lambda x: x['nombre'] if x else 'Sin medio')
                             
                             # Calcular totales
                             ventas_total = df_ventas['monto'].sum() if len(df_ventas) > 0 else 0.0
@@ -1077,6 +1110,7 @@ if tab3 is not None:
                             col6.metric("💵 Ticket Promedio", f"${ticket_promedio:,.2f}")
                             
                             st.markdown("---")
+
                             
                             # ==================== RESUMEN DIARIO ====================
                             st.markdown("### 📅 Resumen Diario")

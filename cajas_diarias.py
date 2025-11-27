@@ -1268,8 +1268,48 @@ if tab3 is not None:
                     st.cache_data.clear()
                     st.success("✅ Caché limpiado - Click 'Generar Reporte' para ver datos actualizados")
             
-            st.info("📋 Este reporte muestra el detalle de gastos por categoría para todas las sucursales en un período específico")
+            st.info("📋 Este reporte muestra el detalle de gastos por categoría para las sucursales seleccionadas en un período específico")
             
+            # 🆕 NUEVO: Filtros de sucursal (igual que en Reporte General)
+            if auth.is_admin():
+                col_filtro1, col_filtro2 = st.columns(2)
+                
+                with col_filtro1:
+                    todas_suc_gastos = st.checkbox(
+                        "Todas las sucursales", 
+                        value=True,  # Por defecto True para mantener comportamiento actual
+                        key="todas_suc_gastos"
+                    )
+                
+                with col_filtro2:
+                    # Selector de Razón Social
+                    razones_opciones_gastos = ["Todas"]
+                    razon_seleccionada_gastos = "Todas"
+                    
+                    try:
+                        # Obtener razones sociales únicas
+                        razones_result = supabase.table("razon_social")\\
+                            .select("razon_social")\\
+                            .execute()
+                        
+                        if razones_result.data and len(razones_result.data) > 0:
+                            razones_unicas = sorted(list(set([r['razon_social'] for r in razones_result.data])))
+                            razones_opciones_gastos = ["Todas"] + razones_unicas
+                    except Exception as e:
+                        st.warning(f"⚠️ No se pudieron cargar las razones sociales: {str(e)}")
+                    
+                    razon_seleccionada_gastos = st.selectbox(
+                        "Razón Social",
+                        options=razones_opciones_gastos,
+                        key="razon_social_gastos",
+                        disabled=not todas_suc_gastos,
+                        help="Marca 'Todas las sucursales' para habilitar este filtro"
+                    )
+            else:
+                todas_suc_gastos = False
+                razon_seleccionada_gastos = "Todas"
+            
+            # Selectores de fecha
             col_fecha1, col_fecha2 = st.columns(2)
             
             with col_fecha1:
@@ -1289,15 +1329,44 @@ if tab3 is not None:
             if st.button("📊 Generar Reporte de Gastos", type="primary", use_container_width=True):
                 with st.spinner("Generando reporte de gastos..."):
                     try:
-                        # Consultar gastos del período para todas las sucursales
-                        result = supabase.table("movimientos_diarios")\
-                            .select("*, sucursales(nombre), categorias(nombre), medios_pago(nombre)")\
-                            .eq("tipo", "gasto")\
-                            .gte("fecha", str(fecha_desde_gastos))\
-                            .lte("fecha", str(fecha_hasta_gastos))\
-                            .order("sucursal_id")\
-                            .order("categoria_id")\
-                            .execute()
+                        # 🆕 Obtener IDs de sucursales según filtros (igual que Reporte General)
+                        sucursales_ids_gastos = []
+                        
+                        if todas_suc_gastos:
+                            if razon_seleccionada_gastos != "Todas":
+                                # Filtrar por razón social
+                                razon_suc_result = supabase.table("razon_social")\\
+                                    .select("sucursal_id")\\
+                                    .eq("razon_social", razon_seleccionada_gastos)\\
+                                    .execute()
+                                
+                                if razon_suc_result.data:
+                                    sucursales_ids_gastos = [r['sucursal_id'] for r in razon_suc_result.data]
+                                else:
+                                    st.warning(f"No se encontraron sucursales para la razón social: {razon_seleccionada_gastos}")
+                                    sucursales_ids_gastos = []
+                            # Si es "Todas", no filtramos por sucursal_id (se consultan todas)
+                        else:
+                            # Solo la sucursal seleccionada en el sidebar
+                            sucursales_ids_gastos = [sucursal_seleccionada['id']]
+                        
+                        # Construir consulta con filtros
+                        query = supabase.table("movimientos_diarios")\\
+                            .select("*, sucursales(nombre), categorias(nombre), medios_pago(nombre)")\\
+                            .eq("tipo", "gasto")\\
+                            .gte("fecha", str(fecha_desde_gastos))\\
+                            .lte("fecha", str(fecha_hasta_gastos))
+                        
+                        # 🆕 Aplicar filtro de sucursales si corresponde
+                        if not todas_suc_gastos:
+                            query = query.eq("sucursal_id", sucursal_seleccionada['id'])
+                        elif razon_seleccionada_gastos != "Todas" and sucursales_ids_gastos:
+                            # Filtrar por las sucursales de la razón social seleccionada
+                            query = query.in_("sucursal_id", sucursales_ids_gastos)
+                        
+                        # Ejecutar consulta con ordenamiento
+                        query = query.order("sucursal_id").order("categoria_id")
+                        result = query.execute()
                         
                         if result.data:
                             df_gastos = pd.DataFrame(result.data)
@@ -1308,6 +1377,22 @@ if tab3 is not None:
                             df_gastos['medio_pago_nombre'] = df_gastos['medios_pago'].apply(lambda x: x['nombre'] if x else 'Sin medio')
                             
                             st.markdown(f"#### 📊 Gastos del {fecha_desde_gastos.strftime('%d/%m/%Y')} al {fecha_hasta_gastos.strftime('%d/%m/%Y')}")
+                            
+                            # 🆕 Mostrar información del filtro aplicado
+                            col_info1, col_info2 = st.columns([2, 1])
+                            
+                            with col_info1:
+                                if todas_suc_gastos and razon_seleccionada_gastos != "Todas":
+                                    st.info(f"📋 Filtrado por Razón Social: **{razon_seleccionada_gastos}**")
+                                elif todas_suc_gastos:
+                                    st.success("✅ Mostrando: **Todas las Sucursales**")
+                                else:
+                                    st.warning(f"⚠️ Mostrando solo: **{sucursal_seleccionada['nombre']}**")
+                            
+                            with col_info2:
+                                # Mostrar cantidad de sucursales incluidas
+                                sucursales_unicas = df_gastos['sucursal_nombre'].nunique()
+                                st.metric("🏪 Sucursales", sucursales_unicas)
                             
                             # Total general
                             total_general = df_gastos['monto'].sum()

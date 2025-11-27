@@ -1335,9 +1335,9 @@ if tab3 is not None:
                         if todas_suc_gastos:
                             if razon_seleccionada_gastos != "Todas":
                                 # Filtrar por razón social
-                                razon_suc_result = supabase.table("razon_social")\\
-                                    .select("sucursal_id")\\
-                                    .eq("razon_social", razon_seleccionada_gastos)\\
+                                razon_suc_result = supabase.table("razon_social")\
+                                    .select("sucursal_id")\
+                                    .eq("razon_social", razon_seleccionada_gastos)\
                                     .execute()
                                 
                                 if razon_suc_result.data:
@@ -1351,10 +1351,10 @@ if tab3 is not None:
                             sucursales_ids_gastos = [sucursal_seleccionada['id']]
                         
                         # Construir consulta con filtros
-                        query = supabase.table("movimientos_diarios")\\
-                            .select("*, sucursales(nombre), categorias(nombre), medios_pago(nombre)")\\
-                            .eq("tipo", "gasto")\\
-                            .gte("fecha", str(fecha_desde_gastos))\\
+                        query = supabase.table("movimientos_diarios")\
+                            .select("*, sucursales(nombre), categorias(nombre), medios_pago(nombre)")\
+                            .eq("tipo", "gasto")\
+                            .gte("fecha", str(fecha_desde_gastos))\
                             .lte("fecha", str(fecha_hasta_gastos))
                         
                         # 🆕 Aplicar filtro de sucursales si corresponde

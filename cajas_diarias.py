@@ -1288,8 +1288,8 @@ if tab3 is not None:
                     
                     try:
                         # Obtener razones sociales únicas
-                        razones_result = supabase.table("razon_social")\\
-                            .select("razon_social")\\
+                        razones_result = supabase.table("razon_social")\
+                            .select("razon_social")\
                             .execute()
                         
                         if razones_result.data and len(razones_result.data) > 0:

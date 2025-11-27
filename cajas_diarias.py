@@ -960,7 +960,7 @@ if tab3 is not None:
             
             st.markdown("---")
             
-             if st.button("📊 Generar Reporte", type="primary", use_container_width=True):
+            if st.button("📊 Generar Reporte", type="primary", use_container_width=True):
                 with st.spinner("Generando reporte..."):
                     try:
                         # Obtener IDs de sucursales según filtros

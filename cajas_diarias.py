@@ -1110,7 +1110,6 @@ if tab3 is not None:
                             col6.metric("💵 Ticket Promedio", f"${ticket_promedio:,.2f}")
                             
                             st.markdown("---")
-
                             
                             # ==================== RESUMEN DIARIO ====================
                             st.markdown("### 📅 Resumen Diario")

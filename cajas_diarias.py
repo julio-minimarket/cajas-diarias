@@ -63,14 +63,14 @@ def obtener_fecha_laboral():
     Obtiene la fecha laboral correcta considerando horario de negocio.
     
     Lógica:
-    - Entre 00:00 y 03:59 → Devuelve el día ANTERIOR (movimientos del día laboral previo)
-    - Desde 04:00 hasta 23:59 → Devuelve el día ACTUAL
+    - Entre 00:00 y 05:59 → Devuelve el día ANTERIOR (movimientos del día laboral previo)
+    - Desde 06:00 hasta 23:59 → Devuelve el día ACTUAL
     
     Ejemplos:
     - 24/11/25 23:59 → 24/11/25
     - 25/11/25 00:15 → 24/11/25 (día anterior)
-    - 25/11/25 03:59 → 24/11/25 (día anterior)
-    - 25/11/25 04:00 → 25/11/25 (día actual)
+    - 25/11/25 05:59 → 24/11/25 (día anterior)
+    - 25/11/25 06:00 → 25/11/25 (día actual)
     
     Returns:
         date: Fecha laboral correspondiente
@@ -81,8 +81,8 @@ def obtener_fecha_laboral():
     fecha_actual = ahora.date()
     hora_actual = ahora.hour
     
-    # Si es entre medianoche (00:00) y las 03:59, usar día anterior
-    if 0 <= hora_actual < 4:
+    # Si es entre medianoche (00:00) y las 05:59, usar día anterior
+    if 0 <= hora_actual < 6:
         return fecha_actual - timedelta(days=1)
     else:
         return fecha_actual

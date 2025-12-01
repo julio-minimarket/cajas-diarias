@@ -405,10 +405,10 @@ sucursal_seleccionada = st.sidebar.selectbox(
 )
 
 # Selector de fecha (con validación según rol y lógica de horario de negocio)
-# 🆕 NUEVA LÓGICA: Entre 00:00-03:59 usa el día anterior como fecha por defecto
+# 🆕 NUEVA LÓGICA: Entre 00:00-05:59 usa el día anterior como fecha por defecto
 ahora_argentina = datetime.now(ARGENTINA_TZ)
 hora_actual = ahora_argentina.hour
-es_horario_madrugada = (0 <= hora_actual < 4)
+es_horario_madrugada = (0 <= hora_actual < 6)
 
 if auth.is_admin():
     # Admin puede seleccionar cualquier fecha
@@ -418,18 +418,20 @@ if auth.is_admin():
         key="fecha_movimiento"
     )
 else:
-    # Usuario normal solo puede ver fecha actual
+    # Usuario normal puede seleccionar la fecha actual O el día anterior
     fecha_laboral = obtener_fecha_laboral()
+    from datetime import timedelta
     fecha_mov = st.sidebar.date_input(
         "📅 Fecha",
         value=fecha_laboral,
-        min_value=fecha_laboral,
-        max_value=fecha_laboral,
+        min_value=fecha_laboral - timedelta(days=1),  # Permite día anterior
+        max_value=fecha_laboral,  # Hasta la fecha calculada
         key="fecha_movimiento",
         disabled=False
     )
-    if fecha_mov != fecha_laboral:
-        st.sidebar.warning("⚠️ Solo puedes trabajar con la fecha laboral actual")
+    # Validación: solo permitir fecha actual o día anterior
+    if fecha_mov > fecha_laboral:
+        st.sidebar.warning("⚠️ Solo puedes trabajar con la fecha laboral actual o el día anterior")
         fecha_mov = fecha_laboral
 
 # Indicador visual de horario de madrugada

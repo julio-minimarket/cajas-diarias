@@ -1,4 +1,4 @@
-# cajas_diarias.py - VERSIÓN 6.2 - AJUSTES DE HORARIO Y FECHAS
+# cajas_diarias.py - VERSIÓN 6.1 - FASE 1 OPTIMIZADA + CACHÉ AGRESIVO
 #
 # 🚀 MEJORAS FASE 1 - PERFORMANCE INMEDIATAS:
 # 
@@ -29,15 +29,6 @@
 #    - Botones "🔄 Actualizar Datos" en todas las secciones
 #    - Actualización casi en tiempo real
 #    - Botón global de limpieza de caché en sidebar
-#
-# 🆕 7. HORARIO DE CORTE 6:00 HS (NUEVO en v6.2)
-#    - Cambio de día laboral a las 6:00 hs (antes 4:00 hs)
-#    - Entre 00:00-05:59 → fecha de caja = día anterior
-#    - Desde 06:00-23:59 → fecha de caja = día actual
-#    - Permite cargar caja del día anterior además del actual
-#    - Ejemplos:
-#      * 01/12/2025 02:30 hs → Fecha caja: 30/11/2025 (puede cargar también 29/11)
-#      * 01/12/2025 06:30 hs → Fecha caja: 01/12/2025 (puede cargar también 30/11)
 #
 # IMPACTO ESPERADO: 30-40% mejora en velocidad de carga + actualización instantánea
 #
@@ -924,54 +915,60 @@ if tab3 is not None:
                     st.cache_data.clear()
                     st.success("✅ Caché limpiado - Click 'Generar Reporte' para ver datos actualizados")
             
-            # Primera fila: Fechas
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                fecha_desde = st.date_input("Desde", value=date.today().replace(day=1), key="reporte_desde")
-            
-            with col2:
-                fecha_hasta = st.date_input("Hasta", value=date.today(), key="reporte_hasta")
-            
-            # Segunda fila: Filtros de sucursal (solo para admin)
-            if auth.is_admin():
-                col3, col4 = st.columns(2)
+            # 🆕 FORMULARIO para evitar reruns al cambiar fechas
+            with st.form(key="form_reporte_general"):
+                # Primera fila: Fechas
+                col1, col2 = st.columns(2)
                 
-                with col3:
-                    todas_sucursales = st.checkbox("Todas las sucursales", value=False, key="todas_suc_reporte")
+                with col1:
+                    fecha_desde = st.date_input("Desde", value=date.today().replace(day=1), key="reporte_desde")
                 
-                with col4:
-                    # Selector de Razón Social - SIEMPRE mostrar
-                    razones_opciones = ["Todas"]
-                    razon_seleccionada = "Todas"
+                with col2:
+                    fecha_hasta = st.date_input("Hasta", value=date.today(), key="reporte_hasta")
+                
+                # Segunda fila: Filtros de sucursal (solo para admin)
+                if auth.is_admin():
+                    col3, col4 = st.columns(2)
                     
-                    try:
-                        # Obtener razones sociales únicas
-                        razones_result = supabase.table("razon_social")\
-                            .select("razon_social")\
-                            .execute()
+                    with col3:
+                        todas_sucursales = st.checkbox("Todas las sucursales", value=False, key="todas_suc_reporte")
+                    
+                    with col4:
+                        # Selector de Razón Social - SIEMPRE mostrar
+                        razones_opciones = ["Todas"]
+                        razon_seleccionada = "Todas"
                         
-                        if razones_result.data and len(razones_result.data) > 0:
-                            razones_unicas = sorted(list(set([r['razon_social'] for r in razones_result.data])))
-                            razones_opciones = ["Todas"] + razones_unicas
-                    except Exception as e:
-                        st.warning(f"⚠️ No se pudieron cargar las razones sociales: {str(e)}")
-                    
-                    # Mostrar selector SIEMPRE (incluso si falló la carga)
-                    razon_seleccionada = st.selectbox(
-                        "Razón Social",
-                        options=razones_opciones,
-                        key="razon_social_reporte",
-                        disabled=not todas_sucursales,
-                        help="Marca 'Todas las sucursales' para habilitar este filtro"
-                    )
-            else:
-                todas_sucursales = False
-                razon_seleccionada = "Todas"
+                        try:
+                            # Obtener razones sociales únicas
+                            razones_result = supabase.table("razon_social")\
+                                .select("razon_social")\
+                                .execute()
+                            
+                            if razones_result.data and len(razones_result.data) > 0:
+                                razones_unicas = sorted(list(set([r['razon_social'] for r in razones_result.data])))
+                                razones_opciones = ["Todas"] + razones_unicas
+                        except Exception as e:
+                            st.warning(f"⚠️ No se pudieron cargar las razones sociales: {str(e)}")
+                        
+                        # Mostrar selector SIEMPRE (incluso si falló la carga)
+                        razon_seleccionada = st.selectbox(
+                            "Razón Social",
+                            options=razones_opciones,
+                            key="razon_social_reporte",
+                            disabled=not todas_sucursales,
+                            help="Marca 'Todas las sucursales' para habilitar este filtro"
+                        )
+                else:
+                    todas_sucursales = False
+                    razon_seleccionada = "Todas"
+                
+                st.markdown("---")
+                
+                # Botón de submit del formulario
+                submitted = st.form_submit_button("📊 Generar Reporte", type="primary", use_container_width=True)
             
-            st.markdown("---")
-            
-            if st.button("📊 Generar Reporte", type="primary", use_container_width=True):
+            # Procesar el formulario solo si se presionó el botón
+            if submitted:
                 with st.spinner("Generando reporte..."):
                     try:
                         # Obtener IDs de sucursales según filtros
@@ -1314,63 +1311,69 @@ if tab3 is not None:
             
             st.info("📋 Este reporte muestra el detalle de gastos por categoría para las sucursales seleccionadas en un período específico")
             
-            # 🆕 NUEVO: Filtros de sucursal (igual que en Reporte General)
-            if auth.is_admin():
-                col_filtro1, col_filtro2 = st.columns(2)
-                
-                with col_filtro1:
-                    todas_suc_gastos = st.checkbox(
-                        "Todas las sucursales", 
-                        value=True,  # Por defecto True para mantener comportamiento actual
-                        key="todas_suc_gastos"
-                    )
-                
-                with col_filtro2:
-                    # Selector de Razón Social
-                    razones_opciones_gastos = ["Todas"]
-                    razon_seleccionada_gastos = "Todas"
+            # 🆕 FORMULARIO para evitar reruns al cambiar fechas
+            with st.form(key="form_reporte_gastos"):
+                # 🆕 NUEVO: Filtros de sucursal (igual que en Reporte General)
+                if auth.is_admin():
+                    col_filtro1, col_filtro2 = st.columns(2)
                     
-                    try:
-                        # Obtener razones sociales únicas
-                        razones_result = supabase.table("razon_social")\
-                            .select("razon_social")\
-                            .execute()
+                    with col_filtro1:
+                        todas_suc_gastos = st.checkbox(
+                            "Todas las sucursales", 
+                            value=True,  # Por defecto True para mantener comportamiento actual
+                            key="todas_suc_gastos"
+                        )
+                    
+                    with col_filtro2:
+                        # Selector de Razón Social
+                        razones_opciones_gastos = ["Todas"]
+                        razon_seleccionada_gastos = "Todas"
                         
-                        if razones_result.data and len(razones_result.data) > 0:
-                            razones_unicas = sorted(list(set([r['razon_social'] for r in razones_result.data])))
-                            razones_opciones_gastos = ["Todas"] + razones_unicas
-                    except Exception as e:
-                        st.warning(f"⚠️ No se pudieron cargar las razones sociales: {str(e)}")
-                    
-                    razon_seleccionada_gastos = st.selectbox(
-                        "Razón Social",
-                        options=razones_opciones_gastos,
-                        key="razon_social_gastos",
-                        disabled=not todas_suc_gastos,
-                        help="Marca 'Todas las sucursales' para habilitar este filtro"
+                        try:
+                            # Obtener razones sociales únicas
+                            razones_result = supabase.table("razon_social")\
+                                .select("razon_social")\
+                                .execute()
+                            
+                            if razones_result.data and len(razones_result.data) > 0:
+                                razones_unicas = sorted(list(set([r['razon_social'] for r in razones_result.data])))
+                                razones_opciones_gastos = ["Todas"] + razones_unicas
+                        except Exception as e:
+                            st.warning(f"⚠️ No se pudieron cargar las razones sociales: {str(e)}")
+                        
+                        razon_seleccionada_gastos = st.selectbox(
+                            "Razón Social",
+                            options=razones_opciones_gastos,
+                            key="razon_social_gastos",
+                            disabled=not todas_suc_gastos,
+                            help="Marca 'Todas las sucursales' para habilitar este filtro"
+                        )
+                else:
+                    todas_suc_gastos = False
+                    razon_seleccionada_gastos = "Todas"
+                
+                # Selectores de fecha
+                col_fecha1, col_fecha2 = st.columns(2)
+                
+                with col_fecha1:
+                    fecha_desde_gastos = st.date_input(
+                        "Fecha Desde",
+                        value=date.today().replace(day=1),
+                        key="fecha_desde_gastos"
                     )
-            else:
-                todas_suc_gastos = False
-                razon_seleccionada_gastos = "Todas"
+                
+                with col_fecha2:
+                    fecha_hasta_gastos = st.date_input(
+                        "Fecha Hasta",
+                        value=date.today(),
+                        key="fecha_hasta_gastos"
+                    )
+                
+                # Botón de submit del formulario
+                submitted_gastos = st.form_submit_button("📊 Generar Reporte de Gastos", type="primary", use_container_width=True)
             
-            # Selectores de fecha
-            col_fecha1, col_fecha2 = st.columns(2)
-            
-            with col_fecha1:
-                fecha_desde_gastos = st.date_input(
-                    "Fecha Desde",
-                    value=date.today().replace(day=1),
-                    key="fecha_desde_gastos"
-                )
-            
-            with col_fecha2:
-                fecha_hasta_gastos = st.date_input(
-                    "Fecha Hasta",
-                    value=date.today(),
-                    key="fecha_hasta_gastos"
-                )
-            
-            if st.button("📊 Generar Reporte de Gastos", type="primary", use_container_width=True):
+            # Procesar el formulario solo si se presionó el botón
+            if submitted_gastos:
                 with st.spinner("Generando reporte de gastos..."):
                     try:
                         # 🆕 Obtener IDs de sucursales según filtros (igual que Reporte General)
@@ -1694,13 +1697,19 @@ if tab5 is not None:
             st.markdown("### 📅 Conciliación Diaria - Todas las Sucursales")
             st.markdown("Compara las ventas de todas las sucursales en una fecha específica")
             
-            fecha_informe_diario = st.date_input(
-                "Fecha a conciliar",
-                value=date.today(),
-                key="fecha_informe_diario"
-            )
+            # 🆕 FORMULARIO para evitar reruns al cambiar fecha
+            with st.form(key="form_informe_diario"):
+                fecha_informe_diario = st.date_input(
+                    "Fecha a conciliar",
+                    value=date.today(),
+                    key="fecha_informe_diario"
+                )
+                
+                # Botón de submit del formulario
+                submitted_informe_diario = st.form_submit_button("📊 Generar Informe Diario", type="primary", use_container_width=True)
             
-            if st.button("📊 Generar Informe Diario", type="primary", use_container_width=True):
+            # Procesar el formulario solo si se presionó el botón
+            if submitted_informe_diario:
                 try:
                     # Obtener todas las sucursales (admin ve todas)
                     resultados = []
@@ -1970,24 +1979,30 @@ if tab5 is not None:
             st.markdown("### 🔍 Consulta Individual de Sucursal")
             st.markdown("Compara una sucursal específica en una fecha determinada con información detallada")
             
-            col_comp1, col_comp2 = st.columns(2)
+            # 🆕 FORMULARIO para evitar reruns al cambiar fecha
+            with st.form(key="form_concil_individual"):
+                col_comp1, col_comp2 = st.columns(2)
+                
+                with col_comp1:
+                    fecha_comparacion = st.date_input(
+                        "Fecha a comparar",
+                        value=date.today(),
+                        key="fecha_comparacion_individual"
+                    )
+                
+                with col_comp2:
+                    sucursal_comparacion = st.selectbox(
+                        "Sucursal",
+                        options=sucursales_disponibles,
+                        format_func=lambda x: x['nombre'],
+                        key="sucursal_comparacion_individual"
+                    )
+                
+                # Botón de submit del formulario
+                submitted_comparar = st.form_submit_button("🔍 Comparar", type="primary", use_container_width=True)
             
-            with col_comp1:
-                fecha_comparacion = st.date_input(
-                    "Fecha a comparar",
-                    value=date.today(),
-                    key="fecha_comparacion_individual"
-                )
-            
-            with col_comp2:
-                sucursal_comparacion = st.selectbox(
-                    "Sucursal",
-                    options=sucursales_disponibles,
-                    format_func=lambda x: x['nombre'],
-                    key="sucursal_comparacion_individual"
-                )
-            
-            if st.button("🔍 Comparar", type="primary", use_container_width=True):
+            # Procesar el formulario solo si se presionó el botón
+            if submitted_comparar:
                 try:
                     # Obtener datos del sistema de cajas
                     movimientos = supabase.table("movimientos_diarios")\
@@ -2142,53 +2157,55 @@ if tab6 is not None:
             # ========== PANEL DE FILTROS (solo para tablas específicas) ==========
             if tabla_seleccionada in ["movimientos_diarios", "crm_datos_diarios"]:
                 with st.expander("🔍 **Filtros de Búsqueda**", expanded=True):
-                    col_filtro1, col_filtro2, col_filtro3 = st.columns([2, 1, 1])
-                    
-                    with col_filtro1:
-                        # Usar sucursales cacheadas
-                        try:
-                            sucursales_filtro_data = obtener_sucursales()
-                            sucursal_opciones = {s['id']: s['nombre'] for s in sucursales_filtro_data}
-                        except Exception as e:
-                            st.error(f"Error cargando sucursales: {e}")
-                            sucursal_opciones = {}
+                    # 🆕 FORMULARIO para evitar reruns al cambiar fechas
+                    with st.form(key="form_filtros_mantenimiento"):
+                        col_filtro1, col_filtro2, col_filtro3 = st.columns([2, 1, 1])
                         
-                        sucursal_filtro = st.selectbox(
-                            "🏪 Seleccionar Sucursal",
-                            options=[None] + list(sucursal_opciones.keys()),
-                            format_func=lambda x: "Todas las sucursales" if x is None else sucursal_opciones.get(x, ""),
-                            key="filtro_sucursal"
-                        )
-                    
-                    with col_filtro2:
-                        fecha_desde = st.date_input(
-                            "📅 Desde",
-                            value=None,
-                            key="filtro_fecha_desde",
-                            format="DD/MM/YYYY"
-                        )
-                    
-                    with col_filtro3:
-                        fecha_hasta = st.date_input(
-                            "📅 Hasta",
-                            value=None,
-                            key="filtro_fecha_hasta",
-                            format="DD/MM/YYYY"
-                        )
-                    
-                    # Botones de filtros
-                    col_btn1, col_btn2 = st.columns([1, 4])
-                    with col_btn1:
-                        aplicar_filtros = st.button("🔍 Aplicar Filtros", use_container_width=True)
-                    with col_btn2:
-                        if st.button("🔄 Limpiar Filtros", use_container_width=True):
-                            st.session_state.filtro_sucursal = None
-                            st.session_state.filtro_fecha_desde = None
-                            st.session_state.filtro_fecha_hasta = None
-                            st.rerun()
+                        with col_filtro1:
+                            # Usar sucursales cacheadas
+                            try:
+                                sucursales_filtro_data = obtener_sucursales()
+                                sucursal_opciones = {s['id']: s['nombre'] for s in sucursales_filtro_data}
+                            except Exception as e:
+                                st.error(f"Error cargando sucursales: {e}")
+                                sucursal_opciones = {}
+                            
+                            sucursal_filtro = st.selectbox(
+                                "🏪 Seleccionar Sucursal",
+                                options=[None] + list(sucursal_opciones.keys()),
+                                format_func=lambda x: "Todas las sucursales" if x is None else sucursal_opciones.get(x, ""),
+                                key="filtro_sucursal"
+                            )
+                        
+                        with col_filtro2:
+                            fecha_desde = st.date_input(
+                                "📅 Desde",
+                                value=None,
+                                key="filtro_fecha_desde",
+                                format="DD/MM/YYYY"
+                            )
+                        
+                        with col_filtro3:
+                            fecha_hasta = st.date_input(
+                                "📅 Hasta",
+                                value=None,
+                                key="filtro_fecha_hasta",
+                                format="DD/MM/YYYY"
+                            )
+                        
+                        # Botones de filtros
+                        col_btn1, col_btn2 = st.columns([1, 4])
+                        with col_btn1:
+                            aplicar_filtros = st.form_submit_button("🔍 Aplicar Filtros", use_container_width=True)
+                        with col_btn2:
+                            if st.form_submit_button("🔄 Limpiar Filtros", use_container_width=True):
+                                st.session_state.filtro_sucursal = None
+                                st.session_state.filtro_fecha_desde = None
+                                st.session_state.filtro_fecha_hasta = None
+                                st.rerun()
                     
                     # Mostrar filtros activos
-                    if sucursal_filtro or fecha_desde or fecha_hasta:
+                    if aplicar_filtros and (sucursal_filtro or fecha_desde or fecha_hasta):
                         filtros_activos = []
                         if sucursal_filtro:
                             filtros_activos.append(f"🏪 {sucursal_opciones[sucursal_filtro]}")
@@ -2539,58 +2556,63 @@ if tab6 is not None:
                 if tabla_seleccionada == "movimientos_diarios":
                     st.markdown("##### Filtros de Búsqueda")
                     
-                    col_f1, col_f2, col_f3 = st.columns(3)
-                    
-                    with col_f1:
-                        fecha_filtro = st.date_input(
-                            "📅 Fecha",
-                            value=None,
-                            help="Selecciona una fecha específica",
-                            key="fecha_filtro_eliminar"
-                        )
-                    
-                    with col_f2:
-                        sucursal_filtro = st.selectbox(
-                            "🏪 Sucursal",
-                            options=[None] + sucursales_disponibles,
-                            format_func=lambda x: "Todas" if x is None else x['nombre'],
-                            help="Filtra por sucursal",
-                            key="sucursal_filtro_eliminar"
-                        )
-                    
-                    with col_f3:
-                        monto_filtro = st.number_input(
-                            "💰 Monto",
-                            value=None,
-                            min_value=0.0,
-                            step=0.01,
-                            format="%.2f",
-                            help="Filtra por monto exacto",
-                            key="monto_filtro_eliminar"
-                        )
-                    
-                    # Filtros adicionales opcionales
-                    with st.expander("🔧 Filtros Adicionales (Opcional)"):
-                        col_fa1, col_fa2 = st.columns(2)
+                    # 🆕 FORMULARIO para evitar reruns al cambiar fechas
+                    with st.form(key="form_buscar_eliminar"):
+                        col_f1, col_f2, col_f3 = st.columns(3)
                         
-                        with col_fa1:
-                            tipo_filtro = st.selectbox(
-                                "📋 Tipo de Movimiento",
-                                options=[None, "venta", "gasto", "sueldo"],
-                                format_func=lambda x: "Todos" if x is None else x.capitalize(),
-                                key="tipo_filtro_eliminar"
+                        with col_f1:
+                            fecha_filtro = st.date_input(
+                                "📅 Fecha",
+                                value=None,
+                                help="Selecciona una fecha específica",
+                                key="fecha_filtro_eliminar"
                             )
                         
-                        with col_fa2:
-                            concepto_filtro = st.text_input(
-                                "📝 Concepto (contiene)",
-                                placeholder="Ej: transferencia",
-                                help="Busca registros que contengan este texto en el concepto",
-                                key="concepto_filtro_eliminar"
+                        with col_f2:
+                            sucursal_filtro = st.selectbox(
+                                "🏪 Sucursal",
+                                options=[None] + sucursales_disponibles,
+                                format_func=lambda x: "Todas" if x is None else x['nombre'],
+                                help="Filtra por sucursal",
+                                key="sucursal_filtro_eliminar"
                             )
+                        
+                        with col_f3:
+                            monto_filtro = st.number_input(
+                                "💰 Monto",
+                                value=None,
+                                min_value=0.0,
+                                step=0.01,
+                                format="%.2f",
+                                help="Filtra por monto exacto",
+                                key="monto_filtro_eliminar"
+                            )
+                        
+                        # Filtros adicionales opcionales
+                        with st.expander("🔧 Filtros Adicionales (Opcional)"):
+                            col_fa1, col_fa2 = st.columns(2)
+                            
+                            with col_fa1:
+                                tipo_filtro = st.selectbox(
+                                    "📋 Tipo de Movimiento",
+                                    options=[None, "venta", "gasto", "sueldo"],
+                                    format_func=lambda x: "Todos" if x is None else x.capitalize(),
+                                    key="tipo_filtro_eliminar"
+                                )
+                            
+                            with col_fa2:
+                                concepto_filtro = st.text_input(
+                                    "📝 Concepto (contiene)",
+                                    placeholder="Ej: transferencia",
+                                    help="Busca registros que contengan este texto en el concepto",
+                                    key="concepto_filtro_eliminar"
+                                )
+                        
+                        # Botón de búsqueda
+                        buscar_submitted = st.form_submit_button("🔍 Buscar Registros", type="primary")
                     
-                    # Botón de búsqueda
-                    if st.button("🔍 Buscar Registros", type="primary", key="buscar_filtros"):
+                    # Procesar búsqueda solo si se presionó el botón
+                    if buscar_submitted:
                         with st.spinner("🔍 Buscando registros..."):
                             try:
                                 # Validar que al menos un filtro esté aplicado

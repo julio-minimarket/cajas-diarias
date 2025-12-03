@@ -95,6 +95,10 @@ def is_admin():
     """Verifica si el usuario es admin"""
     return get_user_role() == 'admin'
 
+def is_gerente():
+    """Verifica si el usuario es gerente"""
+    return get_user_role() == 'gerente'
+
 def get_user_sucursal():
     """Obtiene la sucursal asignada al usuario"""
     if is_authenticated():
@@ -156,8 +160,8 @@ def puede_cargar_fecha(fecha_seleccionada, rol_usuario):
     hoy = obtener_fecha_argentina()  # 🌍 CORREGIDO: Usar timezone de Argentina
     ayer = hoy - timedelta(days=1)
     
-    # Admin puede cargar cualquier fecha
-    if rol_usuario == 'admin':
+    # Admin y Gerente pueden cargar cualquier fecha
+    if rol_usuario in ['admin', 'gerente']:
         return True, ""
     
     # Encargados solo hoy o ayer
@@ -173,8 +177,9 @@ def obtener_selector_fecha():
     hoy = obtener_fecha_argentina()  # 🌍 CORREGIDO: Usar timezone de Argentina
     ayer = hoy - timedelta(days=1)
     
-    if is_admin():
-        st.info("🔓 **Modo Administrador**: Puedes cargar cualquier fecha")
+    # Admin y Gerente pueden cargar cualquier fecha
+    if is_admin() or is_gerente():
+        st.info("🔓 **Modo Administrador/Gerente**: Puedes cargar cualquier fecha")
         return st.date_input("📅 Fecha", value=hoy, key="fecha_admin")
     else:
         st.warning(f"📅 Solo puedes cargar **HOY** ({hoy.strftime('%d/%m/%Y')}) o **AYER** ({ayer.strftime('%d/%m/%Y')})")
@@ -264,14 +269,22 @@ def mostrar_info_usuario_sidebar():
         st.caption(f"📧 {user['email']}")
         
         # Mostrar rol con color
-        if user['rol'] == 'admin':
+        rol = user['rol'].lower()
+        if rol == 'admin':
             st.success("🔓 **ADMINISTRADOR**")
+        elif rol == 'gerente':
+            st.info("👔 **GERENTE**")
         else:
-            st.info("👤 **Encargado**")
+            st.info("👤 **ENCARGADO**")
         
         # Mostrar sucursal si tiene
-        if user.get('sucursal_asignada'):
-            st.write(f"🏪 Sucursal: **{user['sucursal_asignada']}**")
+        sucursal_asignada = user.get('sucursal_asignada')
+        if sucursal_asignada:
+            st.write(f"🏪 Sucursal ID: **{sucursal_asignada}**")
+        else:
+            # Solo advertir si es encargado
+            if rol == 'encargado':
+                st.warning("⚠️ Sin sucursal asignada")
         
         st.markdown("---")
         
@@ -288,14 +301,17 @@ def validar_acceso_sucursal(sucursal_id: int) -> bool:
     """
     Valida si el usuario puede acceder a una sucursal específica
     Admin: puede acceder a todas
+    Gerente: puede acceder a todas
     Encargado: solo a su sucursal asignada
     """
-    if is_admin():
+    # Admin y Gerente pueden acceder a todas
+    if is_admin() or is_gerente():
         return True
     
+    # Encargado: solo su sucursal
     sucursal_usuario = get_user_sucursal()
     if sucursal_usuario is None:
-        return True  # Si no tiene sucursal asignada, puede ver todas
+        return False  # Sin sucursal, no puede acceder
     
     return sucursal_id == sucursal_usuario
 
@@ -303,13 +319,28 @@ def filtrar_sucursales_disponibles(todas_sucursales: list) -> list:
     """
     Filtra las sucursales disponibles según el rol del usuario
     Admin: todas las sucursales
+    Gerente: todas las sucursales  
     Encargado: solo su sucursal asignada
+    
+    🔧 CORREGIDO: Ahora los encargados sin sucursal NO ven todas
     """
-    if is_admin():
+    # Admin y Gerente pueden ver todas las sucursales
+    if is_admin() or is_gerente():
         return todas_sucursales
     
+    # Encargado: solo su sucursal asignada
     sucursal_usuario = get_user_sucursal()
-    if sucursal_usuario is None:
-        return todas_sucursales
     
-    return [s for s in todas_sucursales if s['id'] == sucursal_usuario]
+    # 🔴 BUG CORREGIDO: Si no tiene sucursal asignada, NO mostrar todas
+    if sucursal_usuario is None:
+        st.error("⚠️ Tu usuario no tiene una sucursal asignada. Contacta al administrador.")
+        return []  # No puede ver ninguna sucursal
+    
+    # Filtrar solo la sucursal asignada
+    sucursales_filtradas = [s for s in todas_sucursales if s['id'] == sucursal_usuario]
+    
+    # Si después del filtro no hay sucursales, algo está mal
+    if len(sucursales_filtradas) == 0:
+        st.error(f"⚠️ Tu sucursal asignada (ID: {sucursal_usuario}) no existe o está inactiva. Contacta al administrador.")
+    
+    return sucursales_filtradas

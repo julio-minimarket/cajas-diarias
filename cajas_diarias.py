@@ -469,7 +469,7 @@ if auth.is_admin():
         "📈 Reportes", 
         "💼 CRM",
         "🔄 Conciliación Cajas",
-        "🔧 Mantenimiento"
+        "🔧 Mantenimiento",
         "🎭 Eventos"
     ])
 else:

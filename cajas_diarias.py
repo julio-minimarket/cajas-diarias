@@ -47,6 +47,7 @@ except:
 
 from supabase import create_client, Client
 import auth  # Importar módulo de autenticación
+import eventos
 
 from datetime import date, datetime
 import pytz
@@ -462,13 +463,14 @@ if st.session_state.get('mostrar_cambio_pwd', False):
 
 # ================== TABS PRINCIPALES ==================
 if auth.is_admin():
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
         "📝 Carga", 
         "📊 Resumen del Día", 
         "📈 Reportes", 
         "💼 CRM",
         "🔄 Conciliación Cajas",
         "🔧 Mantenimiento"
+        "🎭 Eventos"
     ])
 else:
     tab1, tab2 = st.tabs(["📝 Carga", "📊 Resumen del Día"])
@@ -476,6 +478,7 @@ else:
     tab4 = None
     tab5 = None
     tab6 = None
+    tab7 = None 
 
 # ==================== TAB 1: CARGA ====================
 # ==================== ETAPA 2 - FRAGMENTO EN TAB CARGA ====================
@@ -2774,3 +2777,8 @@ if tab6 is not None:
                     # Para otras tablas, mostrar mensaje
                     st.info("🔍 La búsqueda con filtros solo está disponible para la tabla **movimientos_diarios**")
                     st.markdown("Para otras tablas, usa la opción **⚡ Borrado Rápido por ID**")
+# ==================== TAB 7: EVENTOS ====================
+if tab7 is not None:
+    with tab7:
+        eventos.main()
+        

@@ -1071,101 +1071,252 @@ def main():
     
     # ==================== TAB 4: ESTADO DE CUENTA ====================
     with tab4:
-        st.subheader("📊 Estado de Cuenta")
+        st.subheader("📊 Estados de Cuenta")
         
-        # Selector de cliente
-        col1, col2, col3 = st.columns([2, 1, 1])
+        # Subtabs para diferentes vistas
+        subtab_individual, subtab_general = st.tabs([
+            "👤 Estado Individual",
+            "📋 Saldos de Todos los Clientes"
+        ])
         
-        # Inicializar variables
-        clientes_lista = obtener_clientes()
-        opciones_ec = {}
-        cliente_ec_seleccion = ""
-        
-        with col1:
-            if clientes_lista:
-                opciones_ec = {f"{c['nro_cliente']:04d} - {c['denominacion']}": c for c in clientes_lista}
-                cliente_ec_seleccion = st.selectbox(
-                    "Seleccionar cliente",
-                    options=[""] + list(opciones_ec.keys()),
-                    key="cliente_estado_cuenta"
-                )
-            else:
-                st.info("No hay clientes registrados")
-        
-        with col2:
-            fecha_desde_ec = st.date_input(
-                "Desde",
-                value=date.today().replace(day=1),
-                key="fecha_desde_ec"
-            )
-        
-        with col3:
-            fecha_hasta_ec = st.date_input(
-                "Hasta",
-                value=date.today(),
-                key="fecha_hasta_ec"
-            )
-        
-        if cliente_ec_seleccion and cliente_ec_seleccion in opciones_ec:
-            cliente_ec = opciones_ec[cliente_ec_seleccion]
+        # -------------------- SUBTAB: ESTADO INDIVIDUAL --------------------
+        with subtab_individual:
+            st.markdown("#### 👤 Estado de Cuenta Individual")
             
-            estado_cuenta = generar_estado_cuenta(
-                cliente_ec['id'],
-                fecha_desde=fecha_desde_ec,
-                fecha_hasta=fecha_hasta_ec
-            )
+            # Selector de cliente
+            col1, col2, col3 = st.columns([2, 1, 1])
             
-            if estado_cuenta:
-                # Encabezado
-                st.markdown("---")
-                col_ec1, col_ec2, col_ec3 = st.columns(3)
-                
-                with col_ec1:
-                    st.markdown(f"**Cliente:** {estado_cuenta['cliente']['nro_cliente']:04d}")
-                with col_ec2:
-                    st.markdown(f"**{estado_cuenta['cliente']['denominacion']}**")
-                with col_ec3:
-                    saldo = estado_cuenta['saldo_actual']
-                    color = "🔴" if saldo > 0 else "🟢" if saldo < 0 else "⚪"
-                    st.markdown(f"**Saldo: {color} ${saldo:,.2f}**")
-                
-                st.markdown("---")
-                
-                # Tabla de movimientos
-                if estado_cuenta['movimientos']:
-                    df_mov = pd.DataFrame(estado_cuenta['movimientos'])
-                    
-                    st.dataframe(
-                        df_mov,
-                        use_container_width=True,
-                        hide_index=True,
-                        column_config={
-                            "fecha": st.column_config.TextColumn("Fecha"),
-                            "tipo": st.column_config.TextColumn("Tipo"),
-                            "comprobante": st.column_config.TextColumn("Comprobante"),
-                            "debe": st.column_config.NumberColumn("Debe", format="$ %.2f"),
-                            "haber": st.column_config.NumberColumn("Haber", format="$ %.2f"),
-                            "saldo": st.column_config.NumberColumn("Saldo", format="$ %.2f"),
-                            "observaciones": st.column_config.TextColumn("Obs.")
-                        }
-                    )
-                    
-                    # Botón de exportación
-                    st.markdown("---")
-                    
-                    # Crear Excel para descarga
-                    output = io.BytesIO()
-                    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                        df_mov.to_excel(writer, sheet_name='Estado de Cuenta', index=False)
-                    
-                    st.download_button(
-                        label="📥 Descargar Excel",
-                        data=output.getvalue(),
-                        file_name=f"estado_cuenta_{cliente_ec['nro_cliente']:04d}_{date.today()}.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            # Inicializar variables
+            clientes_lista = obtener_clientes()
+            opciones_ec = {}
+            cliente_ec_seleccion = ""
+            
+            with col1:
+                if clientes_lista:
+                    opciones_ec = {f"{c['nro_cliente']:04d} - {c['denominacion']}": c for c in clientes_lista}
+                    cliente_ec_seleccion = st.selectbox(
+                        "Seleccionar cliente",
+                        options=[""] + list(opciones_ec.keys()),
+                        key="cliente_estado_cuenta"
                     )
                 else:
-                    st.info("No hay movimientos en el período seleccionado")
+                    st.info("No hay clientes registrados")
+            
+            with col2:
+                fecha_desde_ec = st.date_input(
+                    "Desde",
+                    value=date.today().replace(day=1),
+                    key="fecha_desde_ec"
+                )
+            
+            with col3:
+                fecha_hasta_ec = st.date_input(
+                    "Hasta",
+                    value=date.today(),
+                    key="fecha_hasta_ec"
+                )
+            
+            if cliente_ec_seleccion and cliente_ec_seleccion in opciones_ec:
+                cliente_ec = opciones_ec[cliente_ec_seleccion]
+                
+                estado_cuenta = generar_estado_cuenta(
+                    cliente_ec['id'],
+                    fecha_desde=fecha_desde_ec,
+                    fecha_hasta=fecha_hasta_ec
+                )
+                
+                if estado_cuenta:
+                    # Encabezado
+                    st.markdown("---")
+                    col_ec1, col_ec2, col_ec3 = st.columns(3)
+                    
+                    with col_ec1:
+                        st.markdown(f"**Cliente:** {estado_cuenta['cliente']['nro_cliente']:04d}")
+                    with col_ec2:
+                        st.markdown(f"**{estado_cuenta['cliente']['denominacion']}**")
+                    with col_ec3:
+                        saldo = estado_cuenta['saldo_actual']
+                        color = "🔴" if saldo > 0 else "🟢" if saldo < 0 else "⚪"
+                        st.markdown(f"**Saldo: {color} ${saldo:,.2f}**")
+                    
+                    st.markdown("---")
+                    
+                    # Tabla de movimientos
+                    if estado_cuenta['movimientos']:
+                        df_mov = pd.DataFrame(estado_cuenta['movimientos'])
+                        
+                        st.dataframe(
+                            df_mov,
+                            use_container_width=True,
+                            hide_index=True,
+                            column_config={
+                                "fecha": st.column_config.TextColumn("Fecha"),
+                                "tipo": st.column_config.TextColumn("Tipo"),
+                                "comprobante": st.column_config.TextColumn("Comprobante"),
+                                "debe": st.column_config.NumberColumn("Debe", format="$ %.2f"),
+                                "haber": st.column_config.NumberColumn("Haber", format="$ %.2f"),
+                                "saldo": st.column_config.NumberColumn("Saldo", format="$ %.2f"),
+                                "observaciones": st.column_config.TextColumn("Obs.")
+                            }
+                        )
+                        
+                        # Botón de exportación
+                        st.markdown("---")
+                        
+                        # Crear Excel para descarga
+                        output = io.BytesIO()
+                        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                            df_mov.to_excel(writer, sheet_name='Estado de Cuenta', index=False)
+                        
+                        st.download_button(
+                            label="📥 Descargar Excel",
+                            data=output.getvalue(),
+                            file_name=f"estado_cuenta_{cliente_ec['nro_cliente']:04d}_{date.today()}.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        )
+                    else:
+                        st.info("No hay movimientos en el período seleccionado")
+        
+        # -------------------- SUBTAB: SALDOS GENERALES --------------------
+        with subtab_general:
+            st.markdown("#### 📋 Saldos de Cuenta Corriente - Todos los Clientes")
+            
+            # Filtros
+            col_filtro1, col_filtro2, col_filtro3 = st.columns([1, 1, 2])
+            
+            with col_filtro1:
+                filtro_saldo = st.selectbox(
+                    "Filtrar por saldo",
+                    ["Todos", "Solo deudores (saldo > 0)", "Solo con saldo a favor", "Solo con saldo cero"],
+                    key="filtro_saldo_general"
+                )
+            
+            with col_filtro2:
+                ordenar_por = st.selectbox(
+                    "Ordenar por",
+                    ["Nro. Cliente", "Denominación", "Saldo (mayor a menor)", "Saldo (menor a mayor)"],
+                    key="ordenar_saldos"
+                )
+            
+            with col_filtro3:
+                if st.button("🔄 Actualizar Saldos", key="btn_actualizar_saldos"):
+                    st.cache_data.clear()
+                    st.rerun()
+            
+            # Obtener resumen de saldos
+            resumen_saldos = obtener_resumen_saldos()
+            
+            if resumen_saldos:
+                df_saldos = pd.DataFrame(resumen_saldos)
+                
+                # Aplicar filtros
+                if filtro_saldo == "Solo deudores (saldo > 0)":
+                    df_saldos = df_saldos[df_saldos['saldo'] > 0]
+                elif filtro_saldo == "Solo con saldo a favor":
+                    df_saldos = df_saldos[df_saldos['saldo'] < 0]
+                elif filtro_saldo == "Solo con saldo cero":
+                    df_saldos = df_saldos[df_saldos['saldo'] == 0]
+                
+                # Aplicar ordenamiento
+                if ordenar_por == "Nro. Cliente":
+                    df_saldos = df_saldos.sort_values('nro_cliente')
+                elif ordenar_por == "Denominación":
+                    df_saldos = df_saldos.sort_values('denominacion')
+                elif ordenar_por == "Saldo (mayor a menor)":
+                    df_saldos = df_saldos.sort_values('saldo', ascending=False)
+                elif ordenar_por == "Saldo (menor a mayor)":
+                    df_saldos = df_saldos.sort_values('saldo', ascending=True)
+                
+                # Métricas resumen
+                st.markdown("---")
+                col_m1, col_m2, col_m3, col_m4 = st.columns(4)
+                
+                total_deudores = df_saldos[df_saldos['saldo'] > 0]['saldo'].sum()
+                total_favor = abs(df_saldos[df_saldos['saldo'] < 0]['saldo'].sum())
+                cant_deudores = len(df_saldos[df_saldos['saldo'] > 0])
+                cant_total = len(df_saldos)
+                
+                with col_m1:
+                    st.metric("Total a Cobrar", f"${total_deudores:,.2f}")
+                with col_m2:
+                    st.metric("Total a Favor Clientes", f"${total_favor:,.2f}")
+                with col_m3:
+                    st.metric("Clientes Deudores", f"{cant_deudores}")
+                with col_m4:
+                    st.metric("Total Clientes", f"{cant_total}")
+                
+                st.markdown("---")
+                
+                # Preparar DataFrame para mostrar
+                df_display = df_saldos.copy()
+                df_display['nro_cliente'] = df_display['nro_cliente'].apply(lambda x: f"{x:04d}")
+                
+                # Seleccionar y renombrar columnas
+                columnas_mostrar = ['nro_cliente', 'denominacion', 'saldo', 'estado_saldo']
+                if 'limite_credito' in df_display.columns:
+                    columnas_mostrar.append('limite_credito')
+                if 'excede_limite' in df_display.columns:
+                    columnas_mostrar.append('excede_limite')
+                
+                df_display = df_display[columnas_mostrar]
+                
+                # Mostrar tabla
+                st.dataframe(
+                    df_display,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "nro_cliente": st.column_config.TextColumn("Nro."),
+                        "denominacion": st.column_config.TextColumn("Cliente"),
+                        "saldo": st.column_config.NumberColumn("Saldo", format="$ %.2f"),
+                        "estado_saldo": st.column_config.TextColumn("Estado"),
+                        "limite_credito": st.column_config.NumberColumn("Límite", format="$ %.2f"),
+                        "excede_limite": st.column_config.CheckboxColumn("Excede Límite")
+                    }
+                )
+                
+                st.caption(f"Mostrando {len(df_display)} clientes")
+                
+                # Exportar a Excel
+                st.markdown("---")
+                
+                # Preparar datos para Excel (sin emojis)
+                df_excel = df_saldos.copy()
+                df_excel['nro_cliente'] = df_excel['nro_cliente'].apply(lambda x: f"{x:04d}")
+                df_excel['estado'] = df_excel['saldo'].apply(
+                    lambda x: 'Deudor' if x > 0 else ('A Favor' if x < 0 else 'Sin Saldo')
+                )
+                
+                cols_excel = ['nro_cliente', 'denominacion', 'saldo', 'estado']
+                if 'limite_credito' in df_excel.columns:
+                    cols_excel.append('limite_credito')
+                
+                df_excel = df_excel[cols_excel]
+                df_excel.columns = ['Nro. Cliente', 'Denominación', 'Saldo', 'Estado', 'Límite Crédito'] if 'limite_credito' in cols_excel else ['Nro. Cliente', 'Denominación', 'Saldo', 'Estado']
+                
+                output_general = io.BytesIO()
+                with pd.ExcelWriter(output_general, engine='openpyxl') as writer:
+                    df_excel.to_excel(writer, sheet_name='Saldos CC', index=False)
+                    
+                    # Agregar hoja de resumen
+                    resumen_data = {
+                        'Concepto': ['Total a Cobrar', 'Total a Favor Clientes', 'Saldo Neto', 'Cantidad Deudores', 'Total Clientes'],
+                        'Valor': [total_deudores, total_favor, total_deudores - total_favor, cant_deudores, cant_total]
+                    }
+                    df_resumen = pd.DataFrame(resumen_data)
+                    df_resumen.to_excel(writer, sheet_name='Resumen', index=False)
+                
+                col_exp1, col_exp2 = st.columns([1, 3])
+                with col_exp1:
+                    st.download_button(
+                        label="📥 Exportar a Excel",
+                        data=output_general.getvalue(),
+                        file_name=f"saldos_cuenta_corriente_{date.today()}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        type="primary"
+                    )
+            else:
+                st.info("No hay clientes con operaciones registradas")
     
     # ==================== TAB 5: IMPORTAR/EXPORTAR ====================
     with tab5:

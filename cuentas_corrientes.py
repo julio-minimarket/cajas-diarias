@@ -660,7 +660,7 @@ def main():
                         
                         if resultado:
                             st.success(f"✅ Compra registrada. Nuevo saldo: ${nuevo_saldo:,.2f}")
-                            st.balloons()
+                            #st.balloons()
                         else:
                             st.error("❌ Error al registrar la compra")
                     else:
@@ -868,7 +868,7 @@ def main():
                                     nuevo_saldo = saldo_cliente - total_a_cancelar
                                     st.success(f"✅ Pago registrado. Nuevo saldo: ${nuevo_saldo:,.2f}")
                                     st.session_state.comprobantes_seleccionados = {}
-                                    st.balloons()
+                                    #st.balloons()
                                     st.rerun()
                                 else:
                                     st.error("❌ Error al registrar el pago")
@@ -989,7 +989,7 @@ def main():
                         
                         if resultado:
                             st.success(f"✅ Cliente creado: {resultado['nro_cliente']:04d} - {resultado['denominacion']}")
-                            st.balloons()
+                            #st.balloons()
                         else:
                             st.error("❌ Error al crear cliente")
                     else:

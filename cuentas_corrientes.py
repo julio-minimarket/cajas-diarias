@@ -1076,8 +1076,12 @@ def main():
         # Selector de cliente
         col1, col2, col3 = st.columns([2, 1, 1])
         
+        # Inicializar variables
+        clientes_lista = obtener_clientes()
+        opciones_ec = {}
+        cliente_ec_seleccion = ""
+        
         with col1:
-            clientes_lista = obtener_clientes()
             if clientes_lista:
                 opciones_ec = {f"{c['nro_cliente']:04d} - {c['denominacion']}": c for c in clientes_lista}
                 cliente_ec_seleccion = st.selectbox(
@@ -1085,6 +1089,8 @@ def main():
                     options=[""] + list(opciones_ec.keys()),
                     key="cliente_estado_cuenta"
                 )
+            else:
+                st.info("No hay clientes registrados")
         
         with col2:
             fecha_desde_ec = st.date_input(

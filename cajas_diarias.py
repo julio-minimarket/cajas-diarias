@@ -48,6 +48,7 @@ except:
 from supabase import create_client, Client
 import auth  # Importar módulo de autenticación
 import eventos
+import cuentas_corrientes  # Módulo de Cuentas Corrientes
 
 from datetime import date, datetime
 import pytz
@@ -463,14 +464,15 @@ if st.session_state.get('mostrar_cambio_pwd', False):
 
 # ================== TABS PRINCIPALES ==================
 if auth.is_admin():
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8  = st.tabs([
         "📝 Carga", 
         "📊 Resumen del Día", 
         "📈 Reportes", 
         "💼 CRM",
         "🔄 Conciliación Cajas",
         "🔧 Mantenimiento",
-        "🎭 Eventos"
+        "🎭 Eventos",
+        "💳 Cuentas Ctes."
     ])
 else:
     tab1, tab2 = st.tabs(["📝 Carga", "📊 Resumen del Día"])
@@ -479,6 +481,7 @@ else:
     tab5 = None
     tab6 = None
     tab7 = None 
+    tab8 = None
 
 # ==================== TAB 1: CARGA ====================
 # ==================== ETAPA 2 - FRAGMENTO EN TAB CARGA ====================
@@ -2781,4 +2784,8 @@ if tab6 is not None:
 if tab7 is not None:
     with tab7:
         eventos.main()
+# ==================== TAB 8: CUENTAS CORRIENTES ====================
+if tab8 is not None:
+    with tab8:
+        cuentas_corrientes.main()
         

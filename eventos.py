@@ -529,38 +529,40 @@ def mostrar_analisis_impacto():
     3. **Mismo día de semana del mes anterior** - Primer viernes vs primer viernes del mes anterior
     """)
     
-    # Selección de evento a analizar
-    col1, col2 = st.columns([2, 1])
+    # Obtener eventos recientes
+    eventos_recientes = obtener_eventos(
+        fecha_desde=date.today() - timedelta(days=90),
+        fecha_hasta=date.today()
+    )
+    
+    if not eventos_recientes:
+        st.warning("⚠️ No hay eventos recientes para analizar")
+        return
+    
+    # Crear opciones para selectbox
+    opciones_eventos = {}
+    for e in eventos_recientes:
+        fecha = datetime.strptime(e['fecha_evento'], '%Y-%m-%d').date()
+        label = f"{fecha.strftime('%d/%m/%Y')} - {e['artista']} ({e['sucursales']['nombre']})"
+        opciones_eventos[label] = e
+    
+    # Selector y botón en columnas
+    col1, col2 = st.columns([3, 1])
     
     with col1:
-        # Obtener eventos recientes
-        eventos_recientes = obtener_eventos(
-            fecha_desde=date.today() - timedelta(days=90),
-            fecha_hasta=date.today()
-        )
-        
-        if not eventos_recientes:
-            st.warning("⚠️ No hay eventos recientes para analizar")
-            return
-        
-        # Crear opciones para selectbox
-        opciones_eventos = {}
-        for e in eventos_recientes:
-            fecha = datetime.strptime(e['fecha_evento'], '%Y-%m-%d').date()
-            label = f"{fecha.strftime('%d/%m/%Y')} - {e['artista']} ({e['sucursales']['nombre']})"
-            opciones_eventos[label] = e
-        
         evento_seleccionado_label = st.selectbox(
             "Seleccionar Evento a Analizar",
             options=list(opciones_eventos.keys())
         )
-        
-        evento = opciones_eventos[evento_seleccionado_label]
     
     with col2:
         st.write("")  # Espaciador
-        if st.button("📈 Generar Análisis", type="primary", use_container_width=True):
-            generar_analisis_detallado(evento)
+        analizar_button = st.button("📈 Generar Análisis", type="primary", use_container_width=True)
+    
+    # Mostrar análisis FUERA de las columnas (usa todo el ancho)
+    if analizar_button:
+        evento = opciones_eventos[evento_seleccionado_label]
+        generar_analisis_detallado(evento)
 
 def generar_analisis_detallado(evento):
     """

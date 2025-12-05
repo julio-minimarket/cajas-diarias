@@ -442,7 +442,10 @@ def obtener_resumen_saldos():
     
     resumen = []
     for cliente in clientes.data:
-        saldo = calcular_saldo_cliente(cliente['id'])
+        saldo_raw = calcular_saldo_cliente(cliente['id'])
+        
+        # Manejar caso donde saldo es None (error de BD o sin operaciones)
+        saldo = saldo_raw if saldo_raw is not None else Decimal('0.00')
         
         # Determinar estado del saldo
         if saldo > 0:
@@ -660,7 +663,7 @@ def main():
                         
                         if resultado:
                             st.success(f"✅ Compra registrada. Nuevo saldo: ${nuevo_saldo:,.2f}")
-                            #st.balloons()
+                            st.balloons()
                         else:
                             st.error("❌ Error al registrar la compra")
                     else:
@@ -868,7 +871,7 @@ def main():
                                     nuevo_saldo = saldo_cliente - total_a_cancelar
                                     st.success(f"✅ Pago registrado. Nuevo saldo: ${nuevo_saldo:,.2f}")
                                     st.session_state.comprobantes_seleccionados = {}
-                                    #st.balloons()
+                                    st.balloons()
                                     st.rerun()
                                 else:
                                     st.error("❌ Error al registrar el pago")
@@ -914,7 +917,8 @@ def main():
                 saldos = []
                 for cliente in clientes:
                     saldo = calcular_saldo_cliente(cliente['id'])
-                    saldos.append(float(saldo))
+                    # Manejar caso donde saldo es None (error de BD)
+                    saldos.append(float(saldo) if saldo is not None else 0.0)
                 df_clientes['saldo'] = saldos
                 
                 # Seleccionar columnas a mostrar
@@ -989,7 +993,7 @@ def main():
                         
                         if resultado:
                             st.success(f"✅ Cliente creado: {resultado['nro_cliente']:04d} - {resultado['denominacion']}")
-                            #st.balloons()
+                            st.balloons()
                         else:
                             st.error("❌ Error al crear cliente")
                     else:

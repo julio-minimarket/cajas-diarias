@@ -462,9 +462,59 @@ if st.session_state.get('mostrar_cambio_pwd', False):
     auth.mostrar_cambio_password()
     st.stop()
 
-# ================== TABS PRINCIPALES ==================
+# ================== TABS PRINCIPALES (SOLUCIONADO - BUG FIX) ==================
+# 🐛 BUG RESUELTO: Ya no vuelve a la primera pestaña después de st.rerun()
+# ✅ SOLUCIÓN: Usar st.radio() + st.session_state en lugar de st.tabs()
+
+# Inicializar pestaña activa en session_state
+if 'active_tab' not in st.session_state:
+    st.session_state.active_tab = "📝 Carga"
+
+# CSS para hacer que el radio parezca tabs profesionales
+st.markdown("""
+    <style>
+    /* Ocultar el label del radio */
+    div[data-testid="stRadio"] > label {
+        display: none;
+    }
+    /* Estilizar el contenedor de opciones */
+    div[role="radiogroup"] {
+        gap: 0 !important;
+        background-color: #f0f2f6;
+        padding: 0.5rem;
+        border-radius: 0.5rem 0.5rem 0 0;
+        display: flex;
+        flex-direction: row;
+    }
+    /* Estilizar cada opción */
+    div[role="radiogroup"] label {
+        padding: 0.75rem 1.5rem !important;
+        border-radius: 0.5rem 0.5rem 0 0 !important;
+        background-color: transparent !important;
+        transition: all 0.3s;
+        cursor: pointer !important;
+        border: none !important;
+    }
+    /* Hover effect */
+    div[role="radiogroup"] label:hover {
+        background-color: rgba(255, 255, 255, 0.7) !important;
+    }
+    /* Ocultar el radio button circle */
+    div[role="radiogroup"] label[data-baseweb="radio"] > div:first-child {
+        display: none !important;
+    }
+    /* Opción seleccionada */
+    div[role="radiogroup"] label[data-checked="true"] {
+        background-color: white !important;
+        border-bottom: 3px solid #ff4b4b !important;
+        font-weight: 600 !important;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+# Definir las opciones de tabs según permisos
 if auth.is_admin():
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8  = st.tabs([
+    tab_options = [
         "📝 Carga", 
         "📊 Resumen del Día", 
         "📈 Reportes", 
@@ -473,15 +523,18 @@ if auth.is_admin():
         "🔧 Mantenimiento",
         "🎭 Eventos",
         "💳 Cuentas Ctes."
-    ])
+    ]
 else:
-    tab1, tab2 = st.tabs(["📝 Carga", "📊 Resumen del Día"])
-    tab3 = None
-    tab4 = None
-    tab5 = None
-    tab6 = None
-    tab7 = None 
-    tab8 = None
+    tab_options = ["📝 Carga", "📊 Resumen del Día"]
+
+# Radio button horizontal que simula tabs
+active_tab = st.radio(
+    "Navegación Principal",
+    tab_options,
+    horizontal=True,
+    key="active_tab",
+    label_visibility="collapsed"
+)
 
 # ==================== TAB 1: CARGA ====================
 # ==================== ETAPA 2 - FRAGMENTO EN TAB CARGA ====================
@@ -508,7 +561,7 @@ else:
 # (Desde "with tab1:" hasta antes de "# ==================== TAB 2")
 # ==================== INICIO DEL CÓDIGO ====================
 
-with tab1:
+if active_tab == "📝 Carga":
     st.subheader(f"Cargar movimiento - {sucursal_seleccionada['nombre']}")
     
     # 🆕 FRAGMENTO: Formulario de carga independiente
@@ -696,7 +749,7 @@ with tab1:
 # Reemplaza TODA la sección del tab2 con este código
 # ==================== INICIO DEL CÓDIGO ====================
 
-with tab2:
+elif active_tab == "📊 Resumen del Día":
     st.subheader(f"📊 Resumen del {fecha_mov.strftime('%d/%m/%Y')} - {sucursal_seleccionada['nombre']}")
     
     # 🆕 FRAGMENTO 1: Métricas Principales
@@ -900,8 +953,7 @@ with tab2:
 # aquí, después de esta línea.
 # ==================== TAB 3: REPORTES ====================
 # Solo mostrar reportes si el usuario es admin
-if tab3 is not None:
-    with tab3:
+elif active_tab == "📈 Reportes" and auth.is_admin():
         st.subheader("📈 Generar Reportes")
         
         # Crear tabs para diferentes tipos de reportes
@@ -1519,7 +1571,6 @@ if tab3 is not None:
 
 # ==================== TAB 4: CRM ====================
 # Solo mostrar CRM si el usuario es admin
-if tab4 is not None:
     # ==================== ETAPA 2 - FRAGMENTO EN TAB CRM ====================
 #
 # 🆕 FASE 2 - ETAPA 2 (PARTE 2): @st.fragment en Tab CRM
@@ -1544,7 +1595,7 @@ if tab4 is not None:
 # (Desde "with tab4:" hasta antes de "# ==================== TAB 5")
 # ==================== INICIO DEL CÓDIGO ====================
 
-    with tab4:
+elif active_tab == "💼 CRM" and auth.is_admin():
         st.subheader("💼 Datos de CRM por Sucursal")
         
         st.info("📊 Esta sección permite cargar los datos de ventas y tickets desde los sistemas CRM de cada sucursal para comparación y control.")
@@ -1685,8 +1736,7 @@ if tab4 is not None:
 
 # ==================== TAB 5: CONCILIACIÓN CAJAS ====================
 # Solo mostrar Conciliación si el usuario es admin
-if tab5 is not None:
-    with tab5:
+elif active_tab == "🔄 Conciliación Cajas" and auth.is_admin():
         st.subheader("🔄 Conciliación: Sistema de Cajas vs CRM")
         
         st.info("📊 En esta sección puedes comparar los datos del sistema de cajas con los datos de CRM para detectar diferencias y asegurar la integridad de la información.")
@@ -2097,8 +2147,7 @@ if tab5 is not None:
 
 # ==================== TAB 6: MANTENIMIENTO ====================
 # Solo mostrar Mantenimiento si el usuario es admin
-if tab6 is not None:
-    with tab6:
+elif active_tab == "🔧 Mantenimiento" and auth.is_admin():
         st.subheader("🔧 Mantenimiento de Base de Datos")
         
         st.warning("⚠️ **Importante:** Esta sección permite editar directamente los datos del sistema. Usa con precaución.")
@@ -2781,11 +2830,8 @@ if tab6 is not None:
                     st.info("🔍 La búsqueda con filtros solo está disponible para la tabla **movimientos_diarios**")
                     st.markdown("Para otras tablas, usa la opción **⚡ Borrado Rápido por ID**")
 # ==================== TAB 7: EVENTOS ====================
-if tab7 is not None:
-    with tab7:
+elif active_tab == "🎭 Eventos" and auth.is_admin():
         eventos.main()
 # ==================== TAB 8: CUENTAS CORRIENTES ====================
-if tab8 is not None:
-    with tab8:
+elif active_tab == "💳 Cuentas Ctes." and auth.is_admin():
         cuentas_corrientes.main()
-        

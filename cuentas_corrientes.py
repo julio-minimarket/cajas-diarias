@@ -581,12 +581,15 @@ def main():
             if metodo_busqueda == "Número":
                 nro_cliente_input = st.number_input(
                     "Nro. Cliente",
-                    min_value=1,
+                    min_value=0,
                     max_value=9999,
+                    value=0,
                     step=1,
-                    key="nro_cliente_compra"
+                    key="nro_cliente_compra",
+                    help="Ingrese el número de cliente"
                 )
-                if nro_cliente_input:
+                # Solo buscar si el usuario ingresó un número válido
+                if nro_cliente_input > 0:
                     cliente_seleccionado = buscar_cliente_por_numero(nro_cliente_input)
                     if not cliente_seleccionado:
                         st.warning(f"⚠️ No existe cliente con número {nro_cliente_input}")
@@ -683,12 +686,15 @@ def main():
             if metodo_busqueda_pago == "Número":
                 nro_cliente_pago = st.number_input(
                     "Nro. Cliente",
-                    min_value=1,
+                    min_value=0,
                     max_value=9999,
+                    value=0,
                     step=1,
-                    key="nro_cliente_pago"
+                    key="nro_cliente_pago",
+                    help="Ingrese el número de cliente"
                 )
-                if nro_cliente_pago:
+                # Solo buscar si el usuario ingresó un número válido
+                if nro_cliente_pago > 0:
                     cliente_pago = buscar_cliente_por_numero(nro_cliente_pago)
                     if not cliente_pago:
                         st.warning(f"⚠️ No existe cliente con número {nro_cliente_pago}")

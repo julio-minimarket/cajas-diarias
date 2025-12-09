@@ -773,7 +773,7 @@ def main():
                     
                     if resultado:
                         st.success(f"✅ Compra registrada ({fecha_compra}). Nuevo saldo: ${nuevo_saldo:,.2f}")
-                        st.balloons()
+                        #st.balloons()
     
     # ==================== TAB 2: REGISTRAR PAGO ====================
     with tab2:
@@ -942,7 +942,7 @@ def main():
                                     nuevo_saldo = saldo_cliente - total_a_cancelar
                                     st.success(f"✅ Pago registrado ({fecha_pago}). Nuevo saldo: ${nuevo_saldo:,.2f}")
                                     st.session_state.comprobantes_seleccionados = {}
-                                    st.balloons()
+                                    #st.balloons()
                     else:
                         st.info("👈 Seleccione comprobantes")
     
@@ -1015,7 +1015,7 @@ def main():
                         )
                         if resultado:
                             st.success(f"✅ Cliente creado: {resultado['nro_cliente']:04d}")
-                            st.balloons()
+                            #st.balloons()
                     else:
                         st.error("⚠️ Denominación obligatoria")
         

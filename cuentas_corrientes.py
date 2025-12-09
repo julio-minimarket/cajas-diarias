@@ -481,28 +481,58 @@ def actualizar_operacion(operacion_id, datos):
 def eliminar_operacion(operacion_id):
     """
     Elimina una operación.
-    ADVERTENCIA: Si es un pago, también elimina las aplicaciones relacionadas.
-    Si es una factura con pagos aplicados, puede dejar inconsistencias.
+    - Si es un PAGO: restaura los saldos pendientes de las facturas y elimina aplicaciones.
+    - Si es una FACTURA: solo permite eliminar si no tiene pagos aplicados.
     """
     supabase = get_supabase_client()
     
-    # Primero verificar si tiene aplicaciones de pago
+    # Primero verificar que la operación existe
     operacion = obtener_operacion_por_id(operacion_id)
     if not operacion:
         return False
     
-    # Si es un pago (crédito), eliminar primero las aplicaciones
+    # Si es un PAGO (crédito)
     if operacion['tipo_movimiento'] == TIPO_CREDITO:
+        # 1. Obtener las aplicaciones de este pago para restaurar saldos
+        aplicaciones = supabase.table("cc_aplicaciones_pago")\
+            .select("comprobante_id, monto_aplicado")\
+            .eq("pago_id", operacion_id)\
+            .execute()
+        
+        # 2. Restaurar saldo_pendiente de cada factura afectada
+        if aplicaciones.data:
+            for app in aplicaciones.data:
+                comprobante_id = app['comprobante_id']
+                monto_aplicado = Decimal(str(app['monto_aplicado']))
+                
+                # Obtener saldo actual de la factura
+                factura = supabase.table("cc_operaciones")\
+                    .select("saldo_pendiente, importe")\
+                    .eq("id", comprobante_id)\
+                    .execute()
+                
+                if factura.data:
+                    saldo_actual = Decimal(str(factura.data[0]['saldo_pendiente']))
+                    importe_original = Decimal(str(factura.data[0]['importe']))
+                    # Restaurar el saldo (no puede exceder el importe original)
+                    nuevo_saldo = min(saldo_actual + monto_aplicado, importe_original)
+                    
+                    supabase.table("cc_operaciones")\
+                        .update({'saldo_pendiente': float(nuevo_saldo)})\
+                        .eq("id", comprobante_id)\
+                        .execute()
+        
+        # 3. Eliminar las aplicaciones de pago
         supabase.table("cc_aplicaciones_pago")\
             .delete()\
             .eq("pago_id", operacion_id)\
             .execute()
     
-    # Si es una factura (débito), restaurar saldo en aplicaciones si las hay
+    # Si es una FACTURA (débito)
     if operacion['tipo_movimiento'] == TIPO_DEBITO:
-        # Verificar si tiene aplicaciones
+        # Verificar si tiene pagos aplicados
         aplicaciones = supabase.table("cc_aplicaciones_pago")\
-            .select("*")\
+            .select("id")\
             .eq("comprobante_id", operacion_id)\
             .execute()
         
@@ -510,16 +540,15 @@ def eliminar_operacion(operacion_id):
             # No permitir eliminar si tiene pagos aplicados
             return False
     
-    # Eliminar la operación
-    result = supabase.table("cc_operaciones")\
+    # 4. Eliminar la operación
+    supabase.table("cc_operaciones")\
         .delete()\
         .eq("id", operacion_id)\
         .execute()
     
-    if result.data:
-        limpiar_cache_cc()
-        return True
-    return False
+    # Limpiar caché siempre (el delete en Supabase no devuelve data confiable)
+    limpiar_cache_cc()
+    return True
 
 # ==================== FUNCIONES DE REPORTES ====================
 
@@ -773,7 +802,7 @@ def main():
                     
                     if resultado:
                         st.success(f"✅ Compra registrada ({fecha_compra}). Nuevo saldo: ${nuevo_saldo:,.2f}")
-                        #st.balloons()
+                        st.balloons()
     
     # ==================== TAB 2: REGISTRAR PAGO ====================
     with tab2:
@@ -942,7 +971,7 @@ def main():
                                     nuevo_saldo = saldo_cliente - total_a_cancelar
                                     st.success(f"✅ Pago registrado ({fecha_pago}). Nuevo saldo: ${nuevo_saldo:,.2f}")
                                     st.session_state.comprobantes_seleccionados = {}
-                                    #st.balloons()
+                                    st.balloons()
                     else:
                         st.info("👈 Seleccione comprobantes")
     
@@ -1015,7 +1044,7 @@ def main():
                         )
                         if resultado:
                             st.success(f"✅ Cliente creado: {resultado['nro_cliente']:04d}")
-                            #st.balloons()
+                            st.balloons()
                     else:
                         st.error("⚠️ Denominación obligatoria")
         

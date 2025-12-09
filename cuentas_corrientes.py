@@ -486,10 +486,15 @@ def eliminar_operacion(operacion_id):
     """
     supabase = get_supabase_client()
     
+    print(f"[DEBUG CC] Intentando eliminar operación ID: {operacion_id}")
+    
     # Primero verificar que la operación existe
     operacion = obtener_operacion_por_id(operacion_id)
     if not operacion:
+        print(f"[DEBUG CC] Operación {operacion_id} no encontrada")
         return False
+    
+    print(f"[DEBUG CC] Operación encontrada: tipo={operacion['tipo_movimiento']}, importe={operacion['importe']}")
     
     # Si es un PAGO (crédito)
     if operacion['tipo_movimiento'] == TIPO_CREDITO:
@@ -499,11 +504,15 @@ def eliminar_operacion(operacion_id):
             .eq("pago_id", operacion_id)\
             .execute()
         
+        print(f"[DEBUG CC] Aplicaciones encontradas: {len(aplicaciones.data) if aplicaciones.data else 0}")
+        
         # 2. Restaurar saldo_pendiente de cada factura afectada
         if aplicaciones.data:
             for app in aplicaciones.data:
                 comprobante_id = app['comprobante_id']
                 monto_aplicado = Decimal(str(app['monto_aplicado']))
+                
+                print(f"[DEBUG CC] Restaurando saldo de factura {comprobante_id}, monto: {monto_aplicado}")
                 
                 # Obtener saldo actual de la factura
                 factura = supabase.table("cc_operaciones")\
@@ -514,8 +523,9 @@ def eliminar_operacion(operacion_id):
                 if factura.data:
                     saldo_actual = Decimal(str(factura.data[0]['saldo_pendiente']))
                     importe_original = Decimal(str(factura.data[0]['importe']))
-                    # Restaurar el saldo (no puede exceder el importe original)
                     nuevo_saldo = min(saldo_actual + monto_aplicado, importe_original)
+                    
+                    print(f"[DEBUG CC] Factura {comprobante_id}: saldo_actual={saldo_actual}, nuevo_saldo={nuevo_saldo}")
                     
                     supabase.table("cc_operaciones")\
                         .update({'saldo_pendiente': float(nuevo_saldo)})\
@@ -523,6 +533,7 @@ def eliminar_operacion(operacion_id):
                         .execute()
         
         # 3. Eliminar las aplicaciones de pago
+        print(f"[DEBUG CC] Eliminando aplicaciones de pago...")
         supabase.table("cc_aplicaciones_pago")\
             .delete()\
             .eq("pago_id", operacion_id)\
@@ -530,23 +541,41 @@ def eliminar_operacion(operacion_id):
     
     # Si es una FACTURA (débito)
     if operacion['tipo_movimiento'] == TIPO_DEBITO:
-        # Verificar si tiene pagos aplicados
         aplicaciones = supabase.table("cc_aplicaciones_pago")\
             .select("id")\
             .eq("comprobante_id", operacion_id)\
             .execute()
         
         if aplicaciones.data and len(aplicaciones.data) > 0:
-            # No permitir eliminar si tiene pagos aplicados
+            print(f"[DEBUG CC] No se puede eliminar: tiene {len(aplicaciones.data)} pagos aplicados")
             return False
     
     # 4. Eliminar la operación
-    supabase.table("cc_operaciones")\
-        .delete()\
+    print(f"[DEBUG CC] Ejecutando DELETE en cc_operaciones para ID={operacion_id}")
+    
+    try:
+        result = supabase.table("cc_operaciones")\
+            .delete()\
+            .eq("id", operacion_id)\
+            .execute()
+        print(f"[DEBUG CC] Resultado DELETE: {result}")
+    except Exception as e:
+        print(f"[DEBUG CC] Error en DELETE: {e}")
+        return False
+    
+    # 5. VERIFICAR que realmente se eliminó
+    verificacion = supabase.table("cc_operaciones")\
+        .select("id")\
         .eq("id", operacion_id)\
         .execute()
     
-    # Limpiar caché siempre (el delete en Supabase no devuelve data confiable)
+    if verificacion.data and len(verificacion.data) > 0:
+        print(f"[DEBUG CC] ERROR: La operación {operacion_id} NO se eliminó!")
+        return False
+    
+    print(f"[DEBUG CC] ✅ Operación {operacion_id} eliminada correctamente")
+    
+    # Limpiar caché
     limpiar_cache_cc()
     return True
 
@@ -1375,18 +1404,34 @@ def main():
                         with col_btn2:
                             eliminar_fact = st.form_submit_button("🗑️ Eliminar", use_container_width=True)
                     
-                    # Confirmar eliminación fuera del form
+                    # Verificar si tiene pagos aplicados
+                    tiene_pagos = float(factura['saldo_pendiente']) < float(factura['importe'])
+                    
+                    # Usar session_state para manejar la confirmación
                     if eliminar_fact:
-                        if float(factura['saldo_pendiente']) < float(factura['importe']):
+                        if tiene_pagos:
                             st.error("❌ No se puede eliminar: tiene pagos aplicados")
                         else:
-                            st.warning(f"⚠️ ¿Eliminar factura ID {factura['id']} por ${factura['importe']:,.2f}?")
-                            if st.button("✅ Sí, eliminar", key="confirmar_elim_fact", type="primary"):
-                                if eliminar_operacion(factura['id']):
-                                    st.success("✅ Factura eliminada")
+                            st.session_state['confirmar_eliminar_fact'] = factura['id']
+                    
+                    # Mostrar confirmación si está pendiente
+                    if st.session_state.get('confirmar_eliminar_fact') == factura['id'] and not tiene_pagos:
+                        st.warning(f"⚠️ ¿Eliminar factura ID {factura['id']} por ${factura['importe']:,.2f}?")
+                        
+                        col_conf1, col_conf2 = st.columns(2)
+                        with col_conf1:
+                            if st.button("✅ Sí, eliminar", key="confirmar_elim_fact", type="primary", use_container_width=True):
+                                resultado = eliminar_operacion(factura['id'])
+                                if resultado:
+                                    st.session_state['confirmar_eliminar_fact'] = None
+                                    st.success("✅ Factura eliminada correctamente")
                                     st.rerun()
                                 else:
-                                    st.error("❌ No se pudo eliminar")
+                                    st.error("❌ No se pudo eliminar la factura")
+                        with col_conf2:
+                            if st.button("❌ Cancelar", key="cancelar_elim_fact", use_container_width=True):
+                                st.session_state['confirmar_eliminar_fact'] = None
+                                st.rerun()
             else:
                 st.info("No se encontraron facturas con los filtros seleccionados")
         
@@ -1483,15 +1528,29 @@ def main():
                         with col_btn2:
                             eliminar_pago_btn = st.form_submit_button("🗑️ Eliminar", use_container_width=True)
                     
-                    # Confirmar eliminación fuera del form
+                    # Usar session_state para manejar la confirmación
                     if eliminar_pago_btn:
-                        st.error(f"⚠️ ¿Eliminar pago ID {pago['id']} por ${pago['importe']:,.2f}? Las facturas asociadas volverán a tener saldo pendiente.")
-                        if st.button("✅ Sí, eliminar pago", key="confirmar_elim_pago", type="primary"):
-                            if eliminar_operacion(pago['id']):
-                                st.success("✅ Pago eliminado")
+                        st.session_state['confirmar_eliminar_pago'] = pago['id']
+                    
+                    # Mostrar confirmación si está pendiente
+                    if st.session_state.get('confirmar_eliminar_pago') == pago['id']:
+                        st.error(f"⚠️ ¿Eliminar pago ID {pago['id']} por ${pago['importe']:,.2f}?")
+                        st.warning("Las facturas asociadas volverán a tener saldo pendiente.")
+                        
+                        col_conf1, col_conf2 = st.columns(2)
+                        with col_conf1:
+                            if st.button("✅ Sí, eliminar", key="confirmar_elim_pago", type="primary", use_container_width=True):
+                                resultado = eliminar_operacion(pago['id'])
+                                if resultado:
+                                    st.session_state['confirmar_eliminar_pago'] = None
+                                    st.success("✅ Pago eliminado correctamente")
+                                    st.rerun()
+                                else:
+                                    st.error("❌ No se pudo eliminar el pago")
+                        with col_conf2:
+                            if st.button("❌ Cancelar", key="cancelar_elim_pago", use_container_width=True):
+                                st.session_state['confirmar_eliminar_pago'] = None
                                 st.rerun()
-                            else:
-                                st.error("❌ No se pudo eliminar")
             else:
                 st.info("No se encontraron pagos con los filtros seleccionados")
 

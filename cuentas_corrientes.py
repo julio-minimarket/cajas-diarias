@@ -146,12 +146,23 @@ def obtener_siguiente_nro_cliente():
         return result.data[0]['nro_cliente'] + 1
     return 1
 
-@manejar_error_db("Error al crear cliente")
-def crear_cliente(denominacion, telefono=None, email=None, limite_credito=None, observaciones=None):
-    """Crea un nuevo cliente con número secuencial."""
+@manejar_error_db("Error al verificar número de cliente")
+def verificar_nro_cliente_disponible(nro_cliente):
+    """Verifica si un número de cliente está disponible (no existe)."""
     supabase = get_supabase_client()
-    
-    nro_cliente = obtener_siguiente_nro_cliente()
+    result = supabase.table("cc_clientes")\
+        .select("id")\
+        .eq("nro_cliente", nro_cliente)\
+        .execute()
+    return len(result.data) == 0 if result.data is not None else True
+
+@manejar_error_db("Error al crear cliente")
+def crear_cliente(nro_cliente, denominacion, telefono=None, email=None, limite_credito=None, observaciones=None):
+    """
+    Crea un nuevo cliente con número asignado manualmente.
+    El número de cliente debe ser verificado previamente con verificar_nro_cliente_disponible().
+    """
+    supabase = get_supabase_client()
     
     data = {
         'nro_cliente': nro_cliente,
@@ -831,7 +842,7 @@ def main():
                     
                     if resultado:
                         st.success(f"✅ Compra registrada ({fecha_compra}). Nuevo saldo: ${nuevo_saldo:,.2f}")
-                        st.balloons()
+                        #st.balloons()
     
     # ==================== TAB 2: REGISTRAR PAGO ====================
     with tab2:
@@ -1000,7 +1011,7 @@ def main():
                                     nuevo_saldo = saldo_cliente - total_a_cancelar
                                     st.success(f"✅ Pago registrado ({fecha_pago}). Nuevo saldo: ${nuevo_saldo:,.2f}")
                                     st.session_state.comprobantes_seleccionados = {}
-                                    st.balloons()
+                                    #st.balloons()
                     else:
                         st.info("👈 Seleccione comprobantes")
     
@@ -1046,13 +1057,22 @@ def main():
         with subtab2:
             st.markdown("#### ➕ Nuevo Cliente")
             
+            # Sugerencia del próximo número disponible
+            siguiente_nro = obtener_siguiente_nro_cliente()
+            st.info(f"💡 Próximo número sugerido: **{siguiente_nro:04d}**")
+            
             with st.form("form_nuevo_cliente", clear_on_submit=True):
-                siguiente_nro = obtener_siguiente_nro_cliente()
-                st.info(f"📌 Número asignado: **{siguiente_nro:04d}**")
-                
                 col1, col2 = st.columns(2)
                 
                 with col1:
+                    nro_cliente_nuevo = st.number_input(
+                        "Nro. Cliente *",
+                        min_value=1,
+                        max_value=9999,
+                        value=siguiente_nro,
+                        step=1,
+                        help="Ingrese el número de cliente deseado (1-9999)"
+                    )
                     denominacion_nueva = st.text_input("Nombre/Razón Social *")
                     telefono_nuevo = st.text_input("Teléfono")
                 
@@ -1063,8 +1083,14 @@ def main():
                 obs_cliente = st.text_area("Observaciones", height=80)
                 
                 if st.form_submit_button("💾 Crear Cliente", use_container_width=True, type="primary"):
-                    if denominacion_nueva:
+                    # Validaciones
+                    if not denominacion_nueva:
+                        st.error("⚠️ La denominación es obligatoria")
+                    elif not verificar_nro_cliente_disponible(nro_cliente_nuevo):
+                        st.error(f"⚠️ El número de cliente {nro_cliente_nuevo:04d} ya está en uso. Elija otro número.")
+                    else:
                         resultado = crear_cliente(
+                            nro_cliente=nro_cliente_nuevo,
                             denominacion=denominacion_nueva,
                             telefono=telefono_nuevo,
                             email=email_nuevo,
@@ -1072,10 +1098,8 @@ def main():
                             observaciones=obs_cliente
                         )
                         if resultado:
-                            st.success(f"✅ Cliente creado: {resultado['nro_cliente']:04d}")
-                            st.balloons()
-                    else:
-                        st.error("⚠️ Denominación obligatoria")
+                            st.success(f"✅ Cliente creado: {resultado['nro_cliente']:04d} - {resultado['denominacion']}")
+                            #st.balloons()
         
         with subtab3:
             st.markdown("#### ✏️ Editar Cliente")

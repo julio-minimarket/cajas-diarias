@@ -323,9 +323,13 @@ def obtener_comprobantes_pendientes(cliente_id):
     return result.data if result.data else []
 
 @manejar_error_db("Error al registrar compra")
-def registrar_compra(cliente_id, importe, nro_comprobante=None, observaciones=None, usuario=None):
+def registrar_compra(cliente_id, importe, fecha_compra=None, nro_comprobante=None, observaciones=None, usuario=None):
     """Registra una compra (débito) en la cuenta corriente."""
     supabase = get_supabase_client()
+    
+    # Usar fecha proporcionada o fecha actual
+    if fecha_compra is None:
+        fecha_compra = datetime.now(ARGENTINA_TZ).date()
     
     data = {
         'sucursal_id': SUCURSAL_MINIMARKET_ID,
@@ -334,7 +338,7 @@ def registrar_compra(cliente_id, importe, nro_comprobante=None, observaciones=No
         'nro_comprobante': nro_comprobante.strip().upper() if nro_comprobante else None,
         'importe': float(importe),
         'saldo_pendiente': float(importe),
-        'fecha': datetime.now(ARGENTINA_TZ).date().isoformat(),
+        'fecha': fecha_compra.isoformat() if hasattr(fecha_compra, 'isoformat') else str(fecha_compra),
         'observaciones': observaciones,
         'usuario': usuario,
         'created_at': datetime.now(ARGENTINA_TZ).isoformat()
@@ -348,7 +352,7 @@ def registrar_compra(cliente_id, importe, nro_comprobante=None, observaciones=No
     return None
 
 @manejar_error_db("Error al registrar pago")
-def registrar_pago(cliente_id, importe_total, comprobantes_a_cancelar, nro_recibo=None, observaciones=None, usuario=None):
+def registrar_pago(cliente_id, importe_total, comprobantes_a_cancelar, fecha_pago=None, nro_recibo=None, observaciones=None, usuario=None):
     """
     🚀 OPTIMIZADO: Registra pago con menos consultas.
     - 1 consulta para insertar pago
@@ -358,6 +362,10 @@ def registrar_pago(cliente_id, importe_total, comprobantes_a_cancelar, nro_recib
     """
     supabase = get_supabase_client()
     
+    # Usar fecha proporcionada o fecha actual
+    if fecha_pago is None:
+        fecha_pago = datetime.now(ARGENTINA_TZ).date()
+    
     # 1. Crear registro de pago
     data_pago = {
         'sucursal_id': SUCURSAL_MINIMARKET_ID,
@@ -366,7 +374,7 @@ def registrar_pago(cliente_id, importe_total, comprobantes_a_cancelar, nro_recib
         'nro_comprobante': nro_recibo.strip().upper() if nro_recibo else None,
         'importe': float(importe_total),
         'saldo_pendiente': 0,
-        'fecha': datetime.now(ARGENTINA_TZ).date().isoformat(),
+        'fecha': fecha_pago.isoformat() if hasattr(fecha_pago, 'isoformat') else str(fecha_pago),
         'observaciones': observaciones,
         'usuario': usuario,
         'created_at': datetime.now(ARGENTINA_TZ).isoformat()
@@ -418,6 +426,100 @@ def registrar_pago(cliente_id, importe_total, comprobantes_a_cancelar, nro_recib
     
     limpiar_cache_cc()
     return result_pago.data[0]
+
+# ==================== FUNCIONES DE MANTENIMIENTO ====================
+
+@manejar_error_db("Error al obtener operación")
+def obtener_operacion_por_id(operacion_id):
+    """Obtiene una operación por su ID."""
+    supabase = get_supabase_client()
+    result = supabase.table("cc_operaciones")\
+        .select("*, cc_clientes(nro_cliente, denominacion)")\
+        .eq("id", operacion_id)\
+        .execute()
+    return result.data[0] if result.data else None
+
+@manejar_error_db("Error al buscar operaciones")
+def buscar_operaciones(cliente_id=None, tipo=None, fecha_desde=None, fecha_hasta=None, limite=50):
+    """Busca operaciones con filtros."""
+    supabase = get_supabase_client()
+    
+    query = supabase.table("cc_operaciones")\
+        .select("*, cc_clientes(nro_cliente, denominacion)")\
+        .order("fecha", desc=True)\
+        .order("created_at", desc=True)\
+        .limit(limite)
+    
+    if cliente_id:
+        query = query.eq("cliente_id", cliente_id)
+    if tipo:
+        query = query.eq("tipo_movimiento", tipo)
+    if fecha_desde:
+        query = query.gte("fecha", fecha_desde.isoformat())
+    if fecha_hasta:
+        query = query.lte("fecha", fecha_hasta.isoformat())
+    
+    result = query.execute()
+    return result.data if result.data else []
+
+@manejar_error_db("Error al actualizar operación")
+def actualizar_operacion(operacion_id, datos):
+    """Actualiza una operación existente."""
+    supabase = get_supabase_client()
+    
+    result = supabase.table("cc_operaciones")\
+        .update(datos)\
+        .eq("id", operacion_id)\
+        .execute()
+    
+    if result.data:
+        limpiar_cache_cc()
+        return result.data[0]
+    return None
+
+@manejar_error_db("Error al eliminar operación")
+def eliminar_operacion(operacion_id):
+    """
+    Elimina una operación.
+    ADVERTENCIA: Si es un pago, también elimina las aplicaciones relacionadas.
+    Si es una factura con pagos aplicados, puede dejar inconsistencias.
+    """
+    supabase = get_supabase_client()
+    
+    # Primero verificar si tiene aplicaciones de pago
+    operacion = obtener_operacion_por_id(operacion_id)
+    if not operacion:
+        return False
+    
+    # Si es un pago (crédito), eliminar primero las aplicaciones
+    if operacion['tipo_movimiento'] == TIPO_CREDITO:
+        supabase.table("cc_aplicaciones_pago")\
+            .delete()\
+            .eq("pago_id", operacion_id)\
+            .execute()
+    
+    # Si es una factura (débito), restaurar saldo en aplicaciones si las hay
+    if operacion['tipo_movimiento'] == TIPO_DEBITO:
+        # Verificar si tiene aplicaciones
+        aplicaciones = supabase.table("cc_aplicaciones_pago")\
+            .select("*")\
+            .eq("comprobante_id", operacion_id)\
+            .execute()
+        
+        if aplicaciones.data and len(aplicaciones.data) > 0:
+            # No permitir eliminar si tiene pagos aplicados
+            return False
+    
+    # Eliminar la operación
+    result = supabase.table("cc_operaciones")\
+        .delete()\
+        .eq("id", operacion_id)\
+        .execute()
+    
+    if result.data:
+        limpiar_cache_cc()
+        return True
+    return False
 
 # ==================== FUNCIONES DE REPORTES ====================
 
@@ -553,12 +655,13 @@ def main():
     st.caption(f"📍 {SUCURSAL_MINIMARKET_NOMBRE}")
     
     # Tabs
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "📝 Cargar Compra",
         "💰 Registrar Pago",
         "👥 Clientes",
         "📊 Estado de Cuenta",
-        "📥 Importar/Exportar"
+        "📥 Importar/Exportar",
+        "🔧 Mantenimiento"
     ])
     
     # ==================== TAB 1: CARGAR COMPRA ====================
@@ -629,6 +732,11 @@ def main():
                 col1, col2 = st.columns(2)
                 
                 with col1:
+                    fecha_compra = st.date_input(
+                        "📅 Fecha de Compra *",
+                        value=date.today(),
+                        key="fecha_compra"
+                    )
                     nro_comprobante = st.text_input(
                         "Nro. Comprobante (opcional)",
                         placeholder="Ej: FC-A-0001-00001234"
@@ -657,13 +765,14 @@ def main():
                     resultado = registrar_compra(
                         cliente_id=cliente_seleccionado['id'],
                         importe=importe,
+                        fecha_compra=fecha_compra,
                         nro_comprobante=nro_comprobante,
                         observaciones=observaciones,
                         usuario=usuario
                     )
                     
                     if resultado:
-                        st.success(f"✅ Compra registrada. Nuevo saldo: ${nuevo_saldo:,.2f}")
+                        st.success(f"✅ Compra registrada ({fecha_compra}). Nuevo saldo: ${nuevo_saldo:,.2f}")
                         st.balloons()
     
     # ==================== TAB 2: REGISTRAR PAGO ====================
@@ -794,6 +903,12 @@ def main():
                         
                         st.markdown(f"### TOTAL: ${total_a_cancelar:,.2f}")
                         
+                        st.markdown("---")
+                        fecha_pago = st.date_input(
+                            "📅 Fecha del Pago *",
+                            value=date.today(),
+                            key="fecha_pago"
+                        )
                         nro_recibo = st.text_input("Nro. Recibo (opcional)", key="nro_recibo_pago")
                         obs_pago = st.text_area("Observaciones", height=60, key="obs_pago")
                         
@@ -817,6 +932,7 @@ def main():
                                     cliente_id=cliente_pago['id'],
                                     importe_total=float(total_a_cancelar),
                                     comprobantes_a_cancelar=comps_cancelar,
+                                    fecha_pago=fecha_pago,
                                     nro_recibo=nro_recibo,
                                     observaciones=obs_pago,
                                     usuario=usuario
@@ -824,7 +940,7 @@ def main():
                                 
                                 if resultado:
                                     nuevo_saldo = saldo_cliente - total_a_cancelar
-                                    st.success(f"✅ Pago registrado. Nuevo saldo: ${nuevo_saldo:,.2f}")
+                                    st.success(f"✅ Pago registrado ({fecha_pago}). Nuevo saldo: ${nuevo_saldo:,.2f}")
                                     st.session_state.comprobantes_seleccionados = {}
                                     st.balloons()
                     else:
@@ -1113,6 +1229,242 @@ def main():
                     with pd.ExcelWriter(output, engine='openpyxl') as w:
                         df.to_excel(w, index=False)
                     st.download_button("📥 Descargar", output.getvalue(), f"clientes_saldos_{date.today()}.xlsx")
+    
+    # ==================== TAB 6: MANTENIMIENTO ====================
+    with tab6:
+        st.subheader("🔧 Mantenimiento de Operaciones")
+        st.caption("Editar o eliminar compras y pagos en caso de error")
+        
+        subtab_facturas, subtab_pagos = st.tabs(["📝 Facturas/Compras", "💰 Pagos"])
+        
+        # ==================== SUBTAB: FACTURAS/COMPRAS ====================
+        with subtab_facturas:
+            st.markdown("#### 📝 Gestión de Facturas/Compras (Débitos)")
+            
+            # Filtros
+            col_f1, col_f2, col_f3 = st.columns([2, 1, 1])
+            
+            with col_f1:
+                clientes_mant = obtener_clientes(incluir_inactivos=True)
+                opciones_mant = {"Todos los clientes": None}
+                opciones_mant.update({f"{c['nro_cliente']:04d} - {c['denominacion']}": c['id'] for c in clientes_mant})
+                cliente_filtro_fact = st.selectbox("Filtrar por cliente", list(opciones_mant.keys()), key="cliente_filtro_fact")
+            
+            with col_f2:
+                fecha_desde_fact = st.date_input("Desde", value=date.today().replace(day=1), key="fecha_desde_fact")
+            
+            with col_f3:
+                fecha_hasta_fact = st.date_input("Hasta", value=date.today(), key="fecha_hasta_fact")
+            
+            # Buscar facturas
+            cliente_id_filtro = opciones_mant.get(cliente_filtro_fact)
+            facturas = buscar_operaciones(
+                cliente_id=cliente_id_filtro,
+                tipo=TIPO_DEBITO,
+                fecha_desde=fecha_desde_fact,
+                fecha_hasta=fecha_hasta_fact,
+                limite=100
+            )
+            
+            if facturas:
+                st.markdown(f"**{len(facturas)} facturas encontradas**")
+                
+                # Mostrar tabla de facturas
+                df_fact = pd.DataFrame([{
+                    'ID': f['id'],
+                    'Fecha': f['fecha'],
+                    'Cliente': f"{f['cc_clientes']['nro_cliente']:04d} - {f['cc_clientes']['denominacion']}" if f.get('cc_clientes') else 'N/A',
+                    'Comprobante': f.get('nro_comprobante') or '-',
+                    'Importe': f['importe'],
+                    'Saldo Pend.': f['saldo_pendiente'],
+                    'Observaciones': f.get('observaciones') or ''
+                } for f in facturas])
+                
+                st.dataframe(
+                    df_fact,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "Importe": st.column_config.NumberColumn(format="$ %.2f"),
+                        "Saldo Pend.": st.column_config.NumberColumn(format="$ %.2f")
+                    }
+                )
+                
+                st.markdown("---")
+                st.markdown("#### ✏️ Editar Factura")
+                
+                # Selector de factura a editar
+                opciones_fact = {f"ID {f['id']} | {f['fecha']} | {f.get('nro_comprobante', 'S/N')} | ${f['importe']:,.2f}": f for f in facturas}
+                fact_seleccionada = st.selectbox("Seleccionar factura", [""] + list(opciones_fact.keys()), key="fact_editar")
+                
+                if fact_seleccionada and fact_seleccionada in opciones_fact:
+                    factura = opciones_fact[fact_seleccionada]
+                    
+                    with st.form("form_editar_factura"):
+                        col1, col2 = st.columns(2)
+                        
+                        with col1:
+                            fecha_edit_fact = st.date_input(
+                                "📅 Fecha",
+                                value=datetime.strptime(factura['fecha'], '%Y-%m-%d').date() if isinstance(factura['fecha'], str) else factura['fecha'],
+                                key="fecha_edit_fact"
+                            )
+                            nro_comp_edit = st.text_input("Nro. Comprobante", value=factura.get('nro_comprobante') or '', key="nro_comp_edit_fact")
+                        
+                        with col2:
+                            importe_edit_fact = st.number_input(
+                                "Importe ($)",
+                                min_value=0.01,
+                                value=float(factura['importe']),
+                                step=0.01,
+                                format="%.2f",
+                                key="importe_edit_fact"
+                            )
+                            # Si el saldo pendiente era igual al importe, mantener la proporción
+                            if float(factura['saldo_pendiente']) == float(factura['importe']):
+                                nuevo_saldo_pend = importe_edit_fact
+                            else:
+                                nuevo_saldo_pend = float(factura['saldo_pendiente'])
+                        
+                        obs_edit_fact = st.text_area("Observaciones", value=factura.get('observaciones') or '', key="obs_edit_fact")
+                        
+                        col_btn1, col_btn2 = st.columns(2)
+                        
+                        with col_btn1:
+                            if st.form_submit_button("💾 Guardar Cambios", use_container_width=True, type="primary"):
+                                datos_actualizar = {
+                                    'fecha': fecha_edit_fact.isoformat(),
+                                    'nro_comprobante': nro_comp_edit.strip().upper() if nro_comp_edit else None,
+                                    'importe': importe_edit_fact,
+                                    'saldo_pendiente': nuevo_saldo_pend if float(factura['saldo_pendiente']) == float(factura['importe']) else float(factura['saldo_pendiente']),
+                                    'observaciones': obs_edit_fact
+                                }
+                                if actualizar_operacion(factura['id'], datos_actualizar):
+                                    st.success("✅ Factura actualizada")
+                                    st.rerun()
+                        
+                        with col_btn2:
+                            eliminar_fact = st.form_submit_button("🗑️ Eliminar", use_container_width=True)
+                    
+                    # Confirmar eliminación fuera del form
+                    if eliminar_fact:
+                        if float(factura['saldo_pendiente']) < float(factura['importe']):
+                            st.error("❌ No se puede eliminar: tiene pagos aplicados")
+                        else:
+                            st.warning(f"⚠️ ¿Eliminar factura ID {factura['id']} por ${factura['importe']:,.2f}?")
+                            if st.button("✅ Sí, eliminar", key="confirmar_elim_fact", type="primary"):
+                                if eliminar_operacion(factura['id']):
+                                    st.success("✅ Factura eliminada")
+                                    st.rerun()
+                                else:
+                                    st.error("❌ No se pudo eliminar")
+            else:
+                st.info("No se encontraron facturas con los filtros seleccionados")
+        
+        # ==================== SUBTAB: PAGOS ====================
+        with subtab_pagos:
+            st.markdown("#### 💰 Gestión de Pagos (Créditos)")
+            
+            # Filtros
+            col_f1, col_f2, col_f3 = st.columns([2, 1, 1])
+            
+            with col_f1:
+                cliente_filtro_pago = st.selectbox("Filtrar por cliente", list(opciones_mant.keys()), key="cliente_filtro_pago")
+            
+            with col_f2:
+                fecha_desde_pago = st.date_input("Desde", value=date.today().replace(day=1), key="fecha_desde_pago")
+            
+            with col_f3:
+                fecha_hasta_pago = st.date_input("Hasta", value=date.today(), key="fecha_hasta_pago")
+            
+            # Buscar pagos
+            cliente_id_filtro_pago = opciones_mant.get(cliente_filtro_pago)
+            pagos = buscar_operaciones(
+                cliente_id=cliente_id_filtro_pago,
+                tipo=TIPO_CREDITO,
+                fecha_desde=fecha_desde_pago,
+                fecha_hasta=fecha_hasta_pago,
+                limite=100
+            )
+            
+            if pagos:
+                st.markdown(f"**{len(pagos)} pagos encontrados**")
+                
+                # Mostrar tabla de pagos
+                df_pagos = pd.DataFrame([{
+                    'ID': p['id'],
+                    'Fecha': p['fecha'],
+                    'Cliente': f"{p['cc_clientes']['nro_cliente']:04d} - {p['cc_clientes']['denominacion']}" if p.get('cc_clientes') else 'N/A',
+                    'Recibo': p.get('nro_comprobante') or '-',
+                    'Importe': p['importe'],
+                    'Observaciones': p.get('observaciones') or ''
+                } for p in pagos])
+                
+                st.dataframe(
+                    df_pagos,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "Importe": st.column_config.NumberColumn(format="$ %.2f")
+                    }
+                )
+                
+                st.markdown("---")
+                st.markdown("#### ✏️ Editar Pago")
+                
+                # Selector de pago a editar
+                opciones_pago_mant = {f"ID {p['id']} | {p['fecha']} | {p.get('nro_comprobante', 'S/N')} | ${p['importe']:,.2f}": p for p in pagos}
+                pago_seleccionado = st.selectbox("Seleccionar pago", [""] + list(opciones_pago_mant.keys()), key="pago_editar")
+                
+                if pago_seleccionado and pago_seleccionado in opciones_pago_mant:
+                    pago = opciones_pago_mant[pago_seleccionado]
+                    
+                    st.warning("⚠️ **Precaución**: Editar pagos puede afectar los saldos de facturas relacionadas.")
+                    
+                    with st.form("form_editar_pago"):
+                        col1, col2 = st.columns(2)
+                        
+                        with col1:
+                            fecha_edit_pago = st.date_input(
+                                "📅 Fecha",
+                                value=datetime.strptime(pago['fecha'], '%Y-%m-%d').date() if isinstance(pago['fecha'], str) else pago['fecha'],
+                                key="fecha_edit_pago"
+                            )
+                            nro_recibo_edit = st.text_input("Nro. Recibo", value=pago.get('nro_comprobante') or '', key="nro_recibo_edit")
+                        
+                        with col2:
+                            st.text_input("Importe ($)", value=f"${pago['importe']:,.2f}", disabled=True, 
+                                         help="El importe no se puede modificar. Si necesita cambiarlo, elimine el pago y cree uno nuevo.")
+                        
+                        obs_edit_pago = st.text_area("Observaciones", value=pago.get('observaciones') or '', key="obs_edit_pago")
+                        
+                        col_btn1, col_btn2 = st.columns(2)
+                        
+                        with col_btn1:
+                            if st.form_submit_button("💾 Guardar Cambios", use_container_width=True, type="primary"):
+                                datos_actualizar_pago = {
+                                    'fecha': fecha_edit_pago.isoformat(),
+                                    'nro_comprobante': nro_recibo_edit.strip().upper() if nro_recibo_edit else None,
+                                    'observaciones': obs_edit_pago
+                                }
+                                if actualizar_operacion(pago['id'], datos_actualizar_pago):
+                                    st.success("✅ Pago actualizado")
+                                    st.rerun()
+                        
+                        with col_btn2:
+                            eliminar_pago_btn = st.form_submit_button("🗑️ Eliminar", use_container_width=True)
+                    
+                    # Confirmar eliminación fuera del form
+                    if eliminar_pago_btn:
+                        st.error(f"⚠️ ¿Eliminar pago ID {pago['id']} por ${pago['importe']:,.2f}? Las facturas asociadas volverán a tener saldo pendiente.")
+                        if st.button("✅ Sí, eliminar pago", key="confirmar_elim_pago", type="primary"):
+                            if eliminar_operacion(pago['id']):
+                                st.success("✅ Pago eliminado")
+                                st.rerun()
+                            else:
+                                st.error("❌ No se pudo eliminar")
+            else:
+                st.info("No se encontraron pagos con los filtros seleccionados")
 
 # ==================== PUNTO DE ENTRADA ====================
 if __name__ == "__main__":

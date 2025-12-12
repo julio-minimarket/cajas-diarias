@@ -18,25 +18,16 @@ import os
 from functools import wraps
 import calendar
 
-# ==================== CONFIGURACIÓN ====================
+# ==================== CONFIGURACIÓN (RLS) ====================
+import auth  # 🔐 Importar módulo de autenticación para RLS
 
-@st.cache_resource
-def init_supabase():
-    """Inicializa conexión a Supabase"""
-    if hasattr(st, "secrets") and "SUPABASE_URL" in st.secrets:
-        url = st.secrets["SUPABASE_URL"]
-        key = st.secrets["SUPABASE_KEY"]
-    else:
-        url = os.getenv("SUPABASE_URL")
-        key = os.getenv("SUPABASE_KEY")
-    
-    if not url or not key:
-        st.error("⚠️ Falta configurar credenciales de Supabase")
-        st.stop()
-    
-    return create_client(url, key)
-
-supabase: Client = init_supabase()
+def get_db():
+    """
+    🔐 RLS: Obtiene el cliente de Supabase autenticado.
+    Esta función usa el token del usuario logueado para que RLS
+    pueda identificar quién hace la consulta.
+    """
+    return auth.get_supabase()
 
 # ==================== FUNCIONES AUXILIARES ====================
 
@@ -121,7 +112,7 @@ def formatear_porcentaje(valor):
 @st.cache_data(ttl=30)
 def obtener_sucursales():
     """Obtiene sucursales activas"""
-    result = supabase.table("sucursales")\
+    result = get_db().table("sucursales")\
         .select("id, nombre, codigo")\
         .eq("activa", True)\
         .order("nombre")\
@@ -138,7 +129,7 @@ def obtener_eventos(sucursal_id=None, fecha_desde=None, fecha_hasta=None):
         fecha_desde: Fecha inicio
         fecha_hasta: Fecha fin
     """
-    query = supabase.table("eventos")\
+    query = get_db().table("eventos")\
         .select("*, sucursales(nombre, codigo)")
     
     if sucursal_id:
@@ -160,7 +151,7 @@ def obtener_ventas_dia(sucursal_id, fecha):
         dict con total_ventas y cantidad_tickets
     """
     # Obtener movimientos del día
-    movimientos = supabase.table("movimientos_diarios")\
+    movimientos = get_db().table("movimientos_diarios")\
         .select("monto, categoria_id, categorias(tipo)")\
         .eq("sucursal_id", sucursal_id)\
         .eq("fecha", str(fecha))\
@@ -173,7 +164,7 @@ def obtener_ventas_dia(sucursal_id, fecha):
     )
     
     # Obtener tickets del CRM
-    crm = supabase.table("crm_datos_diarios")\
+    crm = get_db().table("crm_datos_diarios")\
         .select("cantidad_tickets")\
         .eq("sucursal_id", sucursal_id)\
         .eq("fecha", str(fecha))\
@@ -195,7 +186,7 @@ def obtener_fechas_con_eventos(sucursal_id, fecha_desde, fecha_hasta):
     Returns:
         list de fechas
     """
-    eventos = supabase.table("eventos")\
+    eventos = get_db().table("eventos")\
         .select("fecha_evento")\
         .eq("sucursal_id", sucursal_id)\
         .gte("fecha_evento", str(fecha_desde))\
@@ -227,7 +218,7 @@ def calcular_promedio_mes_sin_eventos(sucursal_id, fecha_referencia):
     fechas_eventos = obtener_fechas_con_eventos(sucursal_id, primer_dia, ultimo_dia)
     
     # Obtener todos los movimientos del mes
-    movimientos = supabase.table("movimientos_diarios")\
+    movimientos = get_db().table("movimientos_diarios")\
         .select("fecha, monto, categoria_id, categorias(tipo)")\
         .eq("sucursal_id", sucursal_id)\
         .gte("fecha", str(primer_dia))\
@@ -235,7 +226,7 @@ def calcular_promedio_mes_sin_eventos(sucursal_id, fecha_referencia):
         .execute()
     
     # Obtener datos CRM del mes
-    crm_datos = supabase.table("crm_datos_diarios")\
+    crm_datos = get_db().table("crm_datos_diarios")\
         .select("fecha, cantidad_tickets")\
         .eq("sucursal_id", sucursal_id)\
         .gte("fecha", str(primer_dia))\
@@ -432,7 +423,7 @@ def mostrar_formulario_carga():
                     'created_by': st.session_state.user['id']
                 }
                 
-                result = supabase.table("eventos").insert(nuevo_evento).execute()
+                result = get_db().table("eventos").insert(nuevo_evento).execute()
                 
                 if result.data:
                     st.success(f"✅ Evento '{artista}' guardado exitosamente")

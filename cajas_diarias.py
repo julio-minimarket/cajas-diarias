@@ -101,33 +101,15 @@ if not auth.is_authenticated():
     auth.show_login_form()
     st.stop()
 
-# ==================== CONFIGURACIÓN DE SUPABASE ====================
-@st.cache_resource
-def init_supabase():
+# ==================== CONFIGURACIÓN DE SUPABASE (RLS) ====================
+# 🔐 MODIFICADO PARA RLS: Usar cliente autenticado de auth.py
+def get_db():
     """
-    🚀 MEJORA DE PERFORMANCE: Inicializa la conexión a Supabase una sola vez.
-    El decorador @st.cache_resource asegura que la conexión se reutilice
-    en lugar de crear una nueva cada vez. Esto mejora la velocidad ~70%.
+    🔐 RLS: Obtiene el cliente de Supabase autenticado.
+    Esta función usa el token del usuario logueado para que RLS
+    pueda identificar quién hace la consulta.
     """
-    if hasattr(st, "secrets") and "SUPABASE_URL" in st.secrets:
-        url = st.secrets["SUPABASE_URL"]
-        key = st.secrets["SUPABASE_KEY"]
-    else:
-        url = os.getenv("SUPABASE_URL")
-        key = os.getenv("SUPABASE_KEY")
-    
-    if not url or not key:
-        st.error("⚠️ Falta configurar las credenciales de Supabase")
-        st.stop()
-    
-    try:
-        return create_client(url, key)
-    except Exception as e:
-        st.error(f"❌ Error conectando a Supabase: {str(e)}")
-        st.stop()
-
-# Obtener cliente de Supabase (se crea una sola vez y se reutiliza)
-supabase: Client = init_supabase()
+    return auth.get_supabase()
 
 # ==================== TÍTULO ====================
 st.title("💰 Sistema de Cajas Diarias")
@@ -165,7 +147,7 @@ def manejar_error_supabase(mensaje_personalizado=None):
 @manejar_error_supabase("Error al cargar sucursales")
 def obtener_sucursales():
     """Obtiene sucursales activas. Usa caché de 30 segundos."""
-    result = supabase.table("sucursales").select("*").eq("activa", True).order("nombre").execute()
+    result = get_db().table("sucursales").select("*").eq("activa", True).order("nombre").execute()
     if not result.data:
         st.warning("⚠️ No se encontraron sucursales activas en la base de datos")
     return result.data
@@ -174,7 +156,7 @@ def obtener_sucursales():
 @manejar_error_supabase("Error al cargar categorías")
 def obtener_categorias(tipo):
     """Obtiene categorías activas por tipo. Usa caché de 30 segundos."""
-    result = supabase.table("categorias")\
+    result = get_db().table("categorias")\
         .select("*")\
         .eq("tipo", tipo)\
         .eq("activa", True)\
@@ -193,7 +175,7 @@ def obtener_medios_pago(tipo):
     Returns:
         Lista de medios de pago activos
     """
-    result = supabase.table("medios_pago")\
+    result = get_db().table("medios_pago")\
         .select("*")\
         .eq("activo", True)\
         .or_(f"tipo_aplicable.eq.{tipo},tipo_aplicable.eq.ambos")\
@@ -217,7 +199,7 @@ def obtener_movimientos_fecha(sucursal_id, fecha):
     Returns:
         Lista de movimientos con datos relacionados
     """
-    result = supabase.table("movimientos_diarios")\
+    result = get_db().table("movimientos_diarios")\
         .select("*, categorias(nombre), medios_pago(nombre)")\
         .eq("sucursal_id", sucursal_id)\
         .eq("fecha", str(fecha))\
@@ -238,7 +220,7 @@ def obtener_datos_crm_fecha(sucursal_id, fecha):
     Returns:
         Lista con datos CRM
     """
-    result = supabase.table("crm_datos_diarios")\
+    result = get_db().table("crm_datos_diarios")\
         .select("cantidad_tickets")\
         .eq("sucursal_id", sucursal_id)\
         .eq("fecha", str(fecha))\
@@ -261,7 +243,7 @@ def obtener_resumen_movimientos(sucursal_ids, fecha_desde, fecha_hasta):
         Lista de movimientos con campos esenciales
     """
     # Solo seleccionar campos necesarios para el resumen
-    query = supabase.table("movimientos_diarios")\
+    query = get_db().table("movimientos_diarios")\
         .select("sucursal_id, fecha, tipo, monto, categoria_id, medio_pago_id")\
         .gte("fecha", str(fecha_desde))\
         .lte("fecha", str(fecha_hasta))
@@ -287,7 +269,7 @@ def obtener_datos_crm_periodo(sucursal_ids, fecha_desde, fecha_hasta):
     Returns:
         Lista de datos CRM
     """
-    query = supabase.table("crm_datos_diarios")\
+    query = get_db().table("crm_datos_diarios")\
         .select("sucursal_id, fecha, cantidad_tickets")\
         .gte("fecha", str(fecha_desde))\
         .lte("fecha", str(fecha_hasta))
@@ -665,7 +647,7 @@ if active_tab == "📝 Carga":
                                     "usuario": usuario
                                 }
                                 
-                                result = supabase.table("movimientos_diarios").insert(data).execute()
+                                result = get_db().table("movimientos_diarios").insert(data).execute()
                                 
                                 if result.data:
                                     st.toast(f"✅ Sueldo de {concepto} guardado: ${monto:,.2f}", icon="✅")
@@ -692,7 +674,7 @@ if active_tab == "📝 Carga":
                                     "usuario": usuario
                                 }
                                 
-                                result = supabase.table("movimientos_diarios").insert(data).execute()
+                                result = get_db().table("movimientos_diarios").insert(data).execute()
                                 
                                 if result.data:
                                     st.toast(f"✅ {tipo} guardado: ${monto:,.2f}", icon="✅")
@@ -998,7 +980,7 @@ elif active_tab == "📈 Reportes" and auth.is_admin():
                         
                         try:
                             # Obtener razones sociales únicas
-                            razones_result = supabase.table("razon_social")\
+                            razones_result = get_db().table("razon_social")\
                                 .select("razon_social")\
                                 .execute()
                             
@@ -1035,7 +1017,7 @@ elif active_tab == "📈 Reportes" and auth.is_admin():
                         if todas_sucursales:
                             if razon_seleccionada != "Todas":
                                 # Filtrar por razón social
-                                razon_suc_result = supabase.table("razon_social")\
+                                razon_suc_result = get_db().table("razon_social")\
                                     .select("sucursal_id")\
                                     .eq("razon_social", razon_seleccionada)\
                                     .execute()
@@ -1053,7 +1035,7 @@ elif active_tab == "📈 Reportes" and auth.is_admin():
                         # 🆕 CAMBIO PRINCIPAL: Hacer DOS consultas separadas para evitar problemas de JOIN
                         
                         # ==================== CONSULTA 1: VENTAS ====================
-                        query_ventas = supabase.table("movimientos_diarios")\
+                        query_ventas = get_db().table("movimientos_diarios")\
                             .select("*, sucursales(nombre), categorias(nombre), medios_pago(nombre)")\
                             .eq("tipo", "venta")\
                             .gte("fecha", str(fecha_desde))\
@@ -1068,7 +1050,7 @@ elif active_tab == "📈 Reportes" and auth.is_admin():
                         result_ventas = query_ventas.execute()
                         
                         # ==================== CONSULTA 2: GASTOS ====================
-                        query_gastos = supabase.table("movimientos_diarios")\
+                        query_gastos = get_db().table("movimientos_diarios")\
                             .select("*, sucursales(nombre), categorias(nombre), medios_pago(nombre)")\
                             .eq("tipo", "gasto")\
                             .gte("fecha", str(fecha_desde))\
@@ -1124,7 +1106,7 @@ elif active_tab == "📈 Reportes" and auth.is_admin():
                             
                             # Obtener tickets del CRM para el período
                             try:
-                                crm_query = supabase.table("crm_datos_diarios")\
+                                crm_query = get_db().table("crm_datos_diarios")\
                                     .select("cantidad_tickets")\
                                     .gte("fecha", str(fecha_desde))\
                                     .lte("fecha", str(fecha_hasta))
@@ -1215,7 +1197,7 @@ elif active_tab == "📈 Reportes" and auth.is_admin():
                                         
                                         # Obtener tickets del CRM para esta fecha y sucursal
                                         try:
-                                            crm_dia = supabase.table("crm_datos_diarios")\
+                                            crm_dia = get_db().table("crm_datos_diarios")\
                                                 .select("cantidad_tickets")\
                                                 .eq("fecha", fecha)\
                                                 .eq("sucursal_id", df_suc_fecha['sucursal_id'].iloc[0])\
@@ -1250,7 +1232,7 @@ elif active_tab == "📈 Reportes" and auth.is_admin():
                                     
                                     # Obtener tickets del CRM
                                     try:
-                                        crm_dia = supabase.table("crm_datos_diarios")\
+                                        crm_dia = get_db().table("crm_datos_diarios")\
                                             .select("cantidad_tickets")\
                                             .eq("fecha", fecha)\
                                             .eq("sucursal_id", sucursal_seleccionada['id'])\
@@ -1389,7 +1371,7 @@ elif active_tab == "📈 Reportes" and auth.is_admin():
                         
                         try:
                             # Obtener razones sociales únicas
-                            razones_result = supabase.table("razon_social")\
+                            razones_result = get_db().table("razon_social")\
                                 .select("razon_social")\
                                 .execute()
                             
@@ -1440,7 +1422,7 @@ elif active_tab == "📈 Reportes" and auth.is_admin():
                         if todas_suc_gastos:
                             if razon_seleccionada_gastos != "Todas":
                                 # Filtrar por razón social
-                                razon_suc_result = supabase.table("razon_social")\
+                                razon_suc_result = get_db().table("razon_social")\
                                     .select("sucursal_id")\
                                     .eq("razon_social", razon_seleccionada_gastos)\
                                     .execute()
@@ -1456,7 +1438,7 @@ elif active_tab == "📈 Reportes" and auth.is_admin():
                             sucursales_ids_gastos = [sucursal_seleccionada['id']]
                         
                         # Construir consulta con filtros
-                        query = supabase.table("movimientos_diarios")\
+                        query = get_db().table("movimientos_diarios")\
                             .select("*, sucursales(nombre), categorias(nombre), medios_pago(nombre)")\
                             .eq("tipo", "gasto")\
                             .gte("fecha", str(fecha_desde_gastos))\
@@ -1611,7 +1593,7 @@ elif active_tab == "💼 CRM" and auth.is_admin():
             
             # Obtener información del sistema CRM de la sucursal
             try:
-                crm_info = supabase.table("sucursales_crm")\
+                crm_info = get_db().table("sucursales_crm")\
                     .select("sistema_crm")\
                     .eq("sucursal_id", sucursal_id)\
                     .single()\
@@ -1668,7 +1650,7 @@ elif active_tab == "💼 CRM" and auth.is_admin():
                     else:
                         try:
                             # Verificar si ya existe un registro para esta fecha y sucursal
-                            existing = supabase.table("crm_datos_diarios")\
+                            existing = get_db().table("crm_datos_diarios")\
                                 .select("id")\
                                 .eq("sucursal_id", sucursal_id)\
                                 .eq("fecha", str(fecha_crm))\
@@ -1676,7 +1658,7 @@ elif active_tab == "💼 CRM" and auth.is_admin():
                             
                             if existing.data:
                                 # Actualizar registro existente
-                                result = supabase.table("crm_datos_diarios")\
+                                result = get_db().table("crm_datos_diarios")\
                                     .update({
                                         "total_ventas_crm": total_ventas_crm,
                                         "cantidad_tickets": cantidad_tickets,
@@ -1698,7 +1680,7 @@ elif active_tab == "💼 CRM" and auth.is_admin():
                                     "usuario": st.session_state.user['nombre']
                                 }
                                 
-                                result = supabase.table("crm_datos_diarios").insert(data_crm).execute()
+                                result = get_db().table("crm_datos_diarios").insert(data_crm).execute()
                                 
                                 if result.data:
                                     st.toast(f"✅ CRM guardado: ${total_ventas_crm:,.2f} - {cantidad_tickets} tickets", icon="✅")
@@ -1772,7 +1754,7 @@ elif active_tab == "🔄 Conciliación Cajas" and auth.is_admin():
                     
                     for suc in sucursales:
                         # Obtener ventas del sistema de cajas
-                        movimientos = supabase.table("movimientos_diarios")\
+                        movimientos = get_db().table("movimientos_diarios")\
                             .select("monto")\
                             .eq("sucursal_id", suc['id'])\
                             .eq("fecha", str(fecha_informe_diario))\
@@ -1782,7 +1764,7 @@ elif active_tab == "🔄 Conciliación Cajas" and auth.is_admin():
                         total_cajas = sum([m['monto'] for m in movimientos.data]) if movimientos.data else 0.0
                         
                         # Obtener datos del CRM
-                        crm_data = supabase.table("crm_datos_diarios")\
+                        crm_data = get_db().table("crm_datos_diarios")\
                             .select("total_ventas_crm, cantidad_tickets")\
                             .eq("sucursal_id", suc['id'])\
                             .eq("fecha", str(fecha_informe_diario))\
@@ -1920,7 +1902,7 @@ elif active_tab == "🔄 Conciliación Cajas" and auth.is_admin():
                     
                     for suc in sucursales:
                         # Obtener ventas del sistema de cajas del mes
-                        movimientos = supabase.table("movimientos_diarios")\
+                        movimientos = get_db().table("movimientos_diarios")\
                             .select("monto")\
                             .eq("sucursal_id", suc['id'])\
                             .gte("fecha", str(fecha_desde))\
@@ -1931,7 +1913,7 @@ elif active_tab == "🔄 Conciliación Cajas" and auth.is_admin():
                         total_cajas_mes = sum([m['monto'] for m in movimientos.data]) if movimientos.data else 0.0
                         
                         # Obtener datos del CRM del mes
-                        crm_data = supabase.table("crm_datos_diarios")\
+                        crm_data = get_db().table("crm_datos_diarios")\
                             .select("total_ventas_crm, cantidad_tickets")\
                             .eq("sucursal_id", suc['id'])\
                             .gte("fecha", str(fecha_desde))\
@@ -2061,7 +2043,7 @@ elif active_tab == "🔄 Conciliación Cajas" and auth.is_admin():
             if submitted_comparar:
                 try:
                     # Obtener datos del sistema de cajas
-                    movimientos = supabase.table("movimientos_diarios")\
+                    movimientos = get_db().table("movimientos_diarios")\
                     .select("*")\
                     .eq("sucursal_id", sucursal_comparacion['id'])\
                     .eq("fecha", str(fecha_comparacion))\
@@ -2071,7 +2053,7 @@ elif active_tab == "🔄 Conciliación Cajas" and auth.is_admin():
                     total_cajas = sum([m['monto'] for m in movimientos.data]) if movimientos.data else 0.0
                     
                     # Obtener datos del CRM
-                    crm_data = supabase.table("crm_datos_diarios")\
+                    crm_data = get_db().table("crm_datos_diarios")\
                         .select("*")\
                         .eq("sucursal_id", sucursal_comparacion['id'])\
                         .eq("fecha", str(fecha_comparacion))\
@@ -2130,7 +2112,7 @@ elif active_tab == "🔄 Conciliación Cajas" and auth.is_admin():
                         
                         with col_info2:
                             # Obtener sistema CRM
-                            crm_sistema = supabase.table("sucursales_crm")\
+                            crm_sistema = get_db().table("sucursales_crm")\
                                 .select("sistema_crm")\
                                 .eq("sucursal_id", sucursal_comparacion['id'])\
                                 .single()\
@@ -2280,7 +2262,7 @@ elif active_tab == "🔧 Mantenimiento" and auth.is_admin():
             
             try:
                 # ========== CONSTRUCCIÓN DE QUERY CON O SIN FILTROS ==========
-                query = supabase.table(tabla_seleccionada).select("*")
+                query = get_db().table(tabla_seleccionada).select("*")
                 
                 # Aplicar filtros si es una tabla que los admite
                 if tabla_seleccionada in ["movimientos_diarios", "crm_datos_diarios"]:
@@ -2367,7 +2349,7 @@ elif active_tab == "🔧 Mantenimiento" and auth.is_admin():
                                         datos_update = {k: v for k, v in fila_nueva.items() if k != 'id'}
                                         
                                         try:
-                                            supabase.table(tabla_seleccionada)\
+                                            get_db().table(tabla_seleccionada)\
                                                 .update(datos_update)\
                                                 .eq('id', registro_id)\
                                                 .execute()
@@ -2425,7 +2407,7 @@ elif active_tab == "🔧 Mantenimiento" and auth.is_admin():
                 
                 elif tabla_seleccionada == "sucursales_crm":
                     # Cargar sucursales disponibles
-                    sucursales_data = supabase.table("sucursales").select("id, nombre").execute()
+                    sucursales_data = get_db().table("sucursales").select("id, nombre").execute()
                     if sucursales_data.data:
                         sucursal_options = {s['id']: s['nombre'] for s in sucursales_data.data}
                         sucursal_sel = st.selectbox("Sucursal *", options=list(sucursal_options.keys()), format_func=lambda x: sucursal_options[x])
@@ -2511,7 +2493,7 @@ elif active_tab == "🔧 Mantenimiento" and auth.is_admin():
                                 nuevo_registro['fecha'] = str(nuevo_registro['fecha'])
                             
                             # Insertar en la base de datos
-                            result = supabase.table(tabla_seleccionada).insert(nuevo_registro).execute()
+                            result = get_db().table(tabla_seleccionada).insert(nuevo_registro).execute()
                             
                             if result.data:
                                 st.toast("✅ Registro agregado correctamente", icon="✅")
@@ -2553,7 +2535,7 @@ elif active_tab == "🔧 Mantenimiento" and auth.is_admin():
                         try:
                             registros_encontrados = []
                             for registro_id in lista_ids:
-                                result = supabase.table(tabla_seleccionada)\
+                                result = get_db().table(tabla_seleccionada)\
                                     .select("*")\
                                     .eq('id', registro_id)\
                                     .execute()
@@ -2576,7 +2558,7 @@ elif active_tab == "🔧 Mantenimiento" and auth.is_admin():
                                         
                                         for registro_id in lista_ids:
                                             try:
-                                                supabase.table(tabla_seleccionada)\
+                                                get_db().table(tabla_seleccionada)\
                                                     .delete()\
                                                     .eq('id', registro_id)\
                                                     .execute()
@@ -2675,7 +2657,7 @@ elif active_tab == "🔧 Mantenimiento" and auth.is_admin():
                                     st.warning("⚠️ Por favor aplica al menos un filtro para buscar")
                                 else:
                                     # Construir query con filtros
-                                    query = supabase.table("movimientos_diarios").select("*")
+                                    query = get_db().table("movimientos_diarios").select("*")
                                     
                                     # Aplicar filtros
                                     if fecha_filtro:
@@ -2763,7 +2745,7 @@ elif active_tab == "🔧 Mantenimiento" and auth.is_admin():
                                     
                                     for registro_id in lista_ids:
                                         try:
-                                            supabase.table("movimientos_diarios")\
+                                            get_db().table("movimientos_diarios")\
                                                 .delete()\
                                                 .eq('id', registro_id)\
                                                 .execute()
@@ -2801,7 +2783,7 @@ elif active_tab == "🔧 Mantenimiento" and auth.is_admin():
                                     
                                     for registro in registros:
                                         try:
-                                            supabase.table("movimientos_diarios")\
+                                            get_db().table("movimientos_diarios")\
                                                 .delete()\
                                                 .eq('id', registro['id'])\
                                                 .execute()

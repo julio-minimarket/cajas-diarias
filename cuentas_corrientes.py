@@ -58,22 +58,16 @@ def manejar_error_db(mensaje_personalizado=None):
         return wrapper
     return decorador
 
-# ==================== CONEXIÓN SUPABASE ====================
-@st.cache_resource
+# ==================== CONEXIÓN SUPABASE (RLS) ====================
+import auth  # 🔐 Importar módulo de autenticación para RLS
+
 def get_supabase_client():
-    """Obtiene cliente de Supabase (singleton)."""
-    if hasattr(st, "secrets") and "SUPABASE_URL" in st.secrets:
-        url = st.secrets["SUPABASE_URL"]
-        key = st.secrets["SUPABASE_KEY"]
-    else:
-        url = os.getenv("SUPABASE_URL")
-        key = os.getenv("SUPABASE_KEY")
-    
-    if not url or not key:
-        st.error("⚠️ Falta configurar las credenciales de Supabase")
-        return None
-    
-    return create_client(url, key)
+    """
+    🔐 RLS: Obtiene cliente de Supabase autenticado.
+    Esta función usa el token del usuario logueado para que RLS
+    pueda identificar quién hace la consulta.
+    """
+    return auth.get_supabase()
 
 # ==================== FUNCIÓN PARA LIMPIAR CACHÉ (SOLO CC) ====================
 def limpiar_cache_cc():

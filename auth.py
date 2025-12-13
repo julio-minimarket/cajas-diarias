@@ -1,110 +1,44 @@
-# auth.py - VERSIÓN CORREGIDA PARA RLS (v2)
-# ============================================================================
-# CORRECCIÓN: El cliente ahora se cachea correctamente para evitar
-# el error "Too many open files"
-# ============================================================================
-
+# auth.py
 import streamlit as st
 from supabase import create_client, Client
 from datetime import date, datetime, timedelta
 import os
-import pytz
+import pytz  # 🌍 AGREGADO: Para manejar timezone de Argentina
 
-# 🌐 Configuración de zona horaria de Argentina
+# 🌍 NUEVO: Configuración de zona horaria de Argentina
 ARGENTINA_TZ = pytz.timezone('America/Argentina/Buenos_Aires')
 
 def obtener_fecha_argentina():
-    """Obtiene la fecha actual en zona horaria de Argentina (UTC-3)."""
+    """
+    🌍 NUEVO: Obtiene la fecha actual en zona horaria de Argentina (UTC-3).
+    
+    Evita el problema de desfase cuando el servidor está en UTC.
+    Por ejemplo, a las 21:30 del día 21 en Argentina, el servidor en UTC
+    ya está en el día 22 (00:30 UTC).
+    
+    Returns:
+        date: Fecha actual en Argentina
+    """
     return datetime.now(ARGENTINA_TZ).date()
 
-def _get_supabase_credentials():
-    """Obtiene las credenciales de Supabase desde secrets o variables de entorno."""
+def init_supabase() -> Client:
+    """Inicializa cliente de Supabase"""
     if hasattr(st, "secrets") and "supabase" in st.secrets:
         url = st.secrets["supabase"]["url"]
         key = st.secrets["supabase"]["key"]
-    elif hasattr(st, "secrets") and "SUPABASE_URL" in st.secrets:
-        url = st.secrets["SUPABASE_URL"]
-        key = st.secrets["SUPABASE_KEY"]
     else:
         url = os.getenv("SUPABASE_URL")
         key = os.getenv("SUPABASE_KEY")
     
-    return url, key
-
-# ============================================================================
-# 🔐 CLIENTE CACHEADO (CORREGIDO)
-# ============================================================================
-@st.cache_resource
-def _get_cached_client() -> Client:
-    """
-    Cliente de Supabase cacheado como recurso.
-    Se crea UNA SOLA VEZ y se reutiliza en toda la aplicación.
-    """
-    url, key = _get_supabase_credentials()
-    if not url or not key:
-        st.error("⚠️ Falta configurar las credenciales de Supabase")
-        return None
     return create_client(url, key)
-
-def init_supabase() -> Client:
-    """
-    Inicializa cliente de Supabase.
-    Usar para login inicial y operaciones sin autenticación.
-    """
-    return _get_cached_client()
-
-def get_supabase() -> Client:
-    """
-    🔐 Función principal para obtener cliente de Supabase.
-    
-    Retorna el cliente cacheado y establece la sesión del usuario
-    si está autenticado (para que RLS funcione).
-    
-    USAR ESTA FUNCIÓN para todas las consultas a la base de datos.
-    """
-    client = _get_cached_client()
-    
-    # Si hay usuario autenticado, establecer la sesión
-    if is_authenticated() and 'user' in st.session_state:
-        access_token = st.session_state.user.get('access_token')
-        refresh_token = st.session_state.user.get('refresh_token', '')
-        
-        if access_token:
-            try:
-                # Establecer la sesión con el token del usuario
-                client.auth.set_session(access_token, refresh_token)
-            except Exception as e:
-                # Si el token expiró, intentar refrescarlo
-                try:
-                    response = client.auth.refresh_session(refresh_token)
-                    if response and response.session:
-                        st.session_state.user['access_token'] = response.session.access_token
-                        st.session_state.user['refresh_token'] = response.session.refresh_token
-                        client.auth.set_session(
-                            response.session.access_token, 
-                            response.session.refresh_token
-                        )
-                except Exception:
-                    pass  # Si falla el refresh, continúa con el cliente base
-    
-    return client
-
-# Alias para compatibilidad
-def get_authenticated_client() -> Client:
-    """Alias de get_supabase() para compatibilidad."""
-    return get_supabase()
-
-# ============================================================================
-# FUNCIONES DE AUTENTICACIÓN
-# ============================================================================
 
 def login(email: str, password: str):
     """
-    Inicia sesión y guarda datos en session_state.
+    Inicia sesión y guarda datos en session_state
     Retorna: (success: bool, message: str)
     """
     try:
-        supabase = _get_cached_client()
+        supabase = init_supabase()
         
         # Autenticar usuario
         response = supabase.auth.sign_in_with_password({
@@ -116,15 +50,14 @@ def login(email: str, password: str):
         user_id = response.user.id
         profile = supabase.table('user_profiles').select('*').eq('id', user_id).single().execute()
         
-        # Guardar en session_state (incluyendo refresh_token)
+        # Guardar en session_state
         st.session_state.user = {
             'id': user_id,
             'email': response.user.email,
             'rol': profile.data['rol'],
             'nombre': profile.data.get('nombre_completo', email),
             'sucursal_asignada': profile.data.get('sucursal_asignada'),
-            'access_token': response.session.access_token,
-            'refresh_token': response.session.refresh_token
+            'access_token': response.session.access_token
         }
         
         st.session_state.authenticated = True
@@ -139,7 +72,7 @@ def login(email: str, password: str):
 def logout():
     """Cierra sesión"""
     try:
-        supabase = _get_cached_client()
+        supabase = init_supabase()
         supabase.auth.sign_out()
     except:
         pass
@@ -174,8 +107,8 @@ def get_user_sucursal():
 
 def require_auth():
     """
-    Protege páginas que requieren autenticación.
-    Usar al inicio de cada página.
+    Protege páginas que requieren autenticación
+    Usar al inicio de cada página
     """
     if not is_authenticated():
         st.warning("⚠️ Debes iniciar sesión para acceder")
@@ -183,7 +116,9 @@ def require_auth():
         st.stop()
 
 def show_login_form():
-    """Muestra formulario de login"""
+    """
+    Muestra formulario de login
+    """
     st.title("🔐 Sistema de Cajas Diarias")
     st.subheader("Iniciar Sesión")
     
@@ -219,10 +154,10 @@ def show_login_form():
 
 def puede_cargar_fecha(fecha_seleccionada, rol_usuario):
     """
-    Valida si el usuario puede cargar una fecha específica.
+    Valida si el usuario puede cargar una fecha específica
     Retorna: (puede: bool, mensaje_error: str)
     """
-    hoy = obtener_fecha_argentina()
+    hoy = obtener_fecha_argentina()  # 🌍 CORREGIDO: Usar timezone de Argentina
     ayer = hoy - timedelta(days=1)
     
     # Admin y Gerente pueden cargar cualquier fecha
@@ -236,10 +171,13 @@ def puede_cargar_fecha(fecha_seleccionada, rol_usuario):
         return False, f"⚠️ Solo puedes cargar movimientos de HOY ({hoy.strftime('%d/%m/%Y')}) o AYER ({ayer.strftime('%d/%m/%Y')})"
 
 def obtener_selector_fecha():
-    """Retorna el widget de fecha apropiado según el rol del usuario"""
-    hoy = obtener_fecha_argentina()
+    """
+    Retorna el widget de fecha apropiado según el rol del usuario
+    """
+    hoy = obtener_fecha_argentina()  # 🌍 CORREGIDO: Usar timezone de Argentina
     ayer = hoy - timedelta(days=1)
     
+    # Admin y Gerente pueden cargar cualquier fecha
     if is_admin() or is_gerente():
         st.info("🔓 **Modo Administrador/Gerente**: Puedes cargar cualquier fecha")
         return st.date_input("📅 Fecha", value=hoy, key="fecha_admin")
@@ -256,11 +194,11 @@ def obtener_selector_fecha():
 
 def cambiar_password(password_actual: str, password_nueva: str):
     """
-    Permite al usuario cambiar su contraseña.
+    Permite al usuario cambiar su contraseña
     Retorna: (success: bool, message: str)
     """
     try:
-        supabase = get_supabase()
+        supabase = init_supabase()
         user = st.session_state.user
         
         # Verificar contraseña actual
@@ -281,8 +219,10 @@ def cambiar_password(password_actual: str, password_nueva: str):
         return False, f"❌ Error al cambiar contraseña: {str(e)}"
 
 def mostrar_cambio_password():
-    """Widget para cambiar contraseña"""
-    st.subheader("🔑 Cambiar Contraseña")
+    """
+    Widget para cambiar contraseña
+    """
+    st.subheader("🔒 Cambiar Contraseña")
     
     with st.form("cambiar_password_form"):
         password_actual = st.text_input("Contraseña actual", type="password")
@@ -316,7 +256,9 @@ def mostrar_cambio_password():
                     st.error(message)
 
 def mostrar_info_usuario_sidebar():
-    """Muestra información del usuario en el sidebar"""
+    """
+    Muestra información del usuario en el sidebar
+    """
     with st.sidebar:
         st.markdown("---")
         st.subheader("👤 Usuario")
@@ -340,13 +282,14 @@ def mostrar_info_usuario_sidebar():
         if sucursal_asignada:
             st.write(f"🏪 Sucursal ID: **{sucursal_asignada}**")
         else:
+            # Solo advertir si es encargado
             if rol == 'encargado':
                 st.warning("⚠️ Sin sucursal asignada")
         
         st.markdown("---")
         
         # Botones de acción
-        if st.button("🔑 Cambiar Contraseña", use_container_width=True, key="btn_cambiar_pwd"):
+        if st.button("🔒 Cambiar Contraseña", use_container_width=True, key="btn_cambiar_pwd"):
             st.session_state.mostrar_cambio_pwd = True
             st.rerun()
         
@@ -356,36 +299,47 @@ def mostrar_info_usuario_sidebar():
 
 def validar_acceso_sucursal(sucursal_id: int) -> bool:
     """
-    Valida si el usuario puede acceder a una sucursal específica.
-    Admin/Gerente: puede acceder a todas
+    Valida si el usuario puede acceder a una sucursal específica
+    Admin: puede acceder a todas
+    Gerente: puede acceder a todas
     Encargado: solo a su sucursal asignada
     """
+    # Admin y Gerente pueden acceder a todas
     if is_admin() or is_gerente():
         return True
     
+    # Encargado: solo su sucursal
     sucursal_usuario = get_user_sucursal()
     if sucursal_usuario is None:
-        return False
+        return False  # Sin sucursal, no puede acceder
     
     return sucursal_id == sucursal_usuario
 
 def filtrar_sucursales_disponibles(todas_sucursales: list) -> list:
     """
-    Filtra las sucursales disponibles según el rol del usuario.
-    Admin/Gerente: todas las sucursales
+    Filtra las sucursales disponibles según el rol del usuario
+    Admin: todas las sucursales
+    Gerente: todas las sucursales  
     Encargado: solo su sucursal asignada
+    
+    🔧 CORREGIDO: Ahora los encargados sin sucursal NO ven todas
     """
+    # Admin y Gerente pueden ver todas las sucursales
     if is_admin() or is_gerente():
         return todas_sucursales
     
+    # Encargado: solo su sucursal asignada
     sucursal_usuario = get_user_sucursal()
     
+    # 🔴 BUG CORREGIDO: Si no tiene sucursal asignada, NO mostrar todas
     if sucursal_usuario is None:
         st.error("⚠️ Tu usuario no tiene una sucursal asignada. Contacta al administrador.")
-        return []
+        return []  # No puede ver ninguna sucursal
     
+    # Filtrar solo la sucursal asignada
     sucursales_filtradas = [s for s in todas_sucursales if s['id'] == sucursal_usuario]
     
+    # Si después del filtro no hay sucursales, algo está mal
     if len(sucursales_filtradas) == 0:
         st.error(f"⚠️ Tu sucursal asignada (ID: {sucursal_usuario}) no existe o está inactiva. Contacta al administrador.")
     

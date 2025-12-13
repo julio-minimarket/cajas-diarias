@@ -1,9 +1,7 @@
-# auth.py - VERSIÓN MODIFICADA PARA RLS
+# auth.py - VERSIÓN CORREGIDA PARA RLS (v2)
 # ============================================================================
-# CAMBIOS IMPORTANTES:
-# 1. Nueva función get_authenticated_client() que usa el token del usuario
-# 2. El cliente autenticado permite que RLS identifique al usuario
-# 3. Mantiene compatibilidad con el código existente
+# CORRECCIÓN: El cliente ahora se cachea correctamente para evitar
+# el error "Too many open files"
 # ============================================================================
 
 import streamlit as st
@@ -16,9 +14,7 @@ import pytz
 ARGENTINA_TZ = pytz.timezone('America/Argentina/Buenos_Aires')
 
 def obtener_fecha_argentina():
-    """
-    🌐 Obtiene la fecha actual en zona horaria de Argentina (UTC-3).
-    """
+    """Obtiene la fecha actual en zona horaria de Argentina (UTC-3)."""
     return datetime.now(ARGENTINA_TZ).date()
 
 def _get_supabase_credentials():
@@ -35,36 +31,38 @@ def _get_supabase_credentials():
     
     return url, key
 
-def init_supabase() -> Client:
+# ============================================================================
+# 🔐 CLIENTE CACHEADO (CORREGIDO)
+# ============================================================================
+@st.cache_resource
+def _get_cached_client() -> Client:
     """
-    Inicializa cliente de Supabase SIN autenticación.
-    Usar solo para login inicial.
+    Cliente de Supabase cacheado como recurso.
+    Se crea UNA SOLA VEZ y se reutiliza en toda la aplicación.
     """
     url, key = _get_supabase_credentials()
+    if not url or not key:
+        st.error("⚠️ Falta configurar las credenciales de Supabase")
+        return None
     return create_client(url, key)
 
-# ============================================================================
-# 🆕 NUEVA FUNCIÓN: Cliente autenticado para RLS
-# ============================================================================
-def get_authenticated_client() -> Client:
+def init_supabase() -> Client:
     """
-    🔐 NUEVA: Obtiene un cliente de Supabase autenticado con el token del usuario.
-    
-    Esta función es CRÍTICA para que RLS funcione correctamente.
-    El cliente devuelto tiene el access_token del usuario, permitiendo que
-    las políticas RLS identifiquen quién está haciendo la consulta.
-    
-    Returns:
-        Client: Cliente de Supabase con sesión del usuario autenticado
-    
-    Uso:
-        supabase = get_authenticated_client()
-        result = supabase.table("movimientos_diarios").select("*").execute()
+    Inicializa cliente de Supabase.
+    Usar para login inicial y operaciones sin autenticación.
     """
-    url, key = _get_supabase_credentials()
+    return _get_cached_client()
+
+def get_supabase() -> Client:
+    """
+    🔐 Función principal para obtener cliente de Supabase.
     
-    # Crear cliente base
-    client = create_client(url, key)
+    Retorna el cliente cacheado y establece la sesión del usuario
+    si está autenticado (para que RLS funcione).
+    
+    USAR ESTA FUNCIÓN para todas las consultas a la base de datos.
+    """
+    client = _get_cached_client()
     
     # Si hay usuario autenticado, establecer la sesión
     if is_authenticated() and 'user' in st.session_state:
@@ -76,59 +74,37 @@ def get_authenticated_client() -> Client:
                 # Establecer la sesión con el token del usuario
                 client.auth.set_session(access_token, refresh_token)
             except Exception as e:
-                # Si falla, intentar refrescar el token
-                print(f"[AUTH] Error estableciendo sesión: {e}")
+                # Si el token expiró, intentar refrescarlo
                 try:
-                    # Intentar obtener nueva sesión
                     response = client.auth.refresh_session(refresh_token)
                     if response and response.session:
-                        # Actualizar tokens en session_state
                         st.session_state.user['access_token'] = response.session.access_token
                         st.session_state.user['refresh_token'] = response.session.refresh_token
                         client.auth.set_session(
                             response.session.access_token, 
                             response.session.refresh_token
                         )
-                except Exception as refresh_error:
-                    print(f"[AUTH] Error refrescando token: {refresh_error}")
+                except Exception:
+                    pass  # Si falla el refresh, continúa con el cliente base
     
     return client
 
-# ============================================================================
-# 🆕 CACHE DEL CLIENTE AUTENTICADO (para evitar recrear en cada consulta)
-# ============================================================================
-@st.cache_resource
-def _get_base_client() -> Client:
-    """Cliente base cacheado (sin sesión de usuario)."""
-    url, key = _get_supabase_credentials()
-    return create_client(url, key)
-
-def get_supabase() -> Client:
-    """
-    🔐 Función principal para obtener cliente de Supabase.
-    
-    - Si el usuario está autenticado: devuelve cliente con sesión
-    - Si no: devuelve cliente base (anon)
-    
-    USAR ESTA FUNCIÓN EN LUGAR DE init_supabase() para consultas.
-    """
-    if is_authenticated() and 'user' in st.session_state:
-        return get_authenticated_client()
-    return _get_base_client()
+# Alias para compatibilidad
+def get_authenticated_client() -> Client:
+    """Alias de get_supabase() para compatibilidad."""
+    return get_supabase()
 
 # ============================================================================
-# FUNCIONES DE AUTENTICACIÓN (modificadas para guardar refresh_token)
+# FUNCIONES DE AUTENTICACIÓN
 # ============================================================================
 
 def login(email: str, password: str):
     """
     Inicia sesión y guarda datos en session_state.
-    🔐 MODIFICADO: Ahora guarda también el refresh_token para RLS.
-    
     Retorna: (success: bool, message: str)
     """
     try:
-        supabase = init_supabase()
+        supabase = _get_cached_client()
         
         # Autenticar usuario
         response = supabase.auth.sign_in_with_password({
@@ -140,7 +116,7 @@ def login(email: str, password: str):
         user_id = response.user.id
         profile = supabase.table('user_profiles').select('*').eq('id', user_id).single().execute()
         
-        # 🔐 Guardar en session_state (incluyendo refresh_token)
+        # Guardar en session_state (incluyendo refresh_token)
         st.session_state.user = {
             'id': user_id,
             'email': response.user.email,
@@ -148,7 +124,7 @@ def login(email: str, password: str):
             'nombre': profile.data.get('nombre_completo', email),
             'sucursal_asignada': profile.data.get('sucursal_asignada'),
             'access_token': response.session.access_token,
-            'refresh_token': response.session.refresh_token  # 🆕 Nuevo campo
+            'refresh_token': response.session.refresh_token
         }
         
         st.session_state.authenticated = True
@@ -163,7 +139,7 @@ def login(email: str, password: str):
 def logout():
     """Cierra sesión"""
     try:
-        supabase = init_supabase()
+        supabase = _get_cached_client()
         supabase.auth.sign_out()
     except:
         pass
@@ -171,12 +147,6 @@ def logout():
     # Limpiar session_state
     for key in list(st.session_state.keys()):
         del st.session_state[key]
-    
-    # 🆕 Limpiar caché del cliente
-    try:
-        _get_base_client.clear()
-    except:
-        pass
 
 def is_authenticated():
     """Verifica si hay un usuario autenticado"""
@@ -290,7 +260,7 @@ def cambiar_password(password_actual: str, password_nueva: str):
     Retorna: (success: bool, message: str)
     """
     try:
-        supabase = get_authenticated_client()  # 🔐 Usar cliente autenticado
+        supabase = get_supabase()
         user = st.session_state.user
         
         # Verificar contraseña actual

@@ -422,9 +422,10 @@ def obtener_datos_conciliacion_batch(fecha_consulta: date, sucursales_list: list
 
 def paginar_dataframe(df: pd.DataFrame, page_size: int = 50, key_prefix: str = "page"):
     """
-    🚀 FASE 3 - PARTE 2: PAGINACIÓN
+    🚀 FASE 3 - PARTE 2: PAGINACIÓN (Optimizada para formularios)
     
-    Muestra un DataFrame grande con paginación.
+    Muestra un DataFrame grande con paginación usando solo el selector numérico.
+    Los botones Primera/Última se eliminaron porque causaban conflictos con st.form().
     
     Args:
         df: DataFrame a paginar
@@ -448,38 +449,35 @@ def paginar_dataframe(df: pd.DataFrame, page_size: int = 50, key_prefix: str = "
     # Calcular páginas
     total_pages = (total_rows + page_size - 1) // page_size  # Redondeo hacia arriba
     
-    # Crear columnas para navegación
-    col1, col2, col3, col4 = st.columns([1, 2, 2, 1])
+    # Inicializar página actual en session_state
+    if f"{key_prefix}_page" not in st.session_state:
+        st.session_state[f"{key_prefix}_page"] = 1
     
-    with col2:
-        # Inicializar página actual en session_state
-        if f"{key_prefix}_page" not in st.session_state:
-            st.session_state[f"{key_prefix}_page"] = 1
-        
-        # Selector de página
-        current_page = st.number_input(
-            "📄 Página",
-            min_value=1,
-            max_value=total_pages,
-            value=st.session_state[f"{key_prefix}_page"],
-            key=f"{key_prefix}_selector",
-            help=f"Total: {total_pages} páginas"
-        )
-        st.session_state[f"{key_prefix}_page"] = current_page
+    # Asegurar que la página esté en rango válido
+    current_page = max(1, min(st.session_state[f"{key_prefix}_page"], total_pages))
+    st.session_state[f"{key_prefix}_page"] = current_page
     
-    with col3:
-        st.write("")  # Espaciado
-        st.caption(f"📊 Registros {(current_page-1)*page_size + 1} - {min(current_page*page_size, total_rows)} de {total_rows}")
+    # Crear columnas para navegación (solo selector + info)
+    col1, col2 = st.columns([1, 2])
     
     with col1:
-        if st.button("⏮️ Primera", key=f"{key_prefix}_first", disabled=(current_page == 1)):
-            st.session_state[f"{key_prefix}_page"] = 1
-            st.rerun()
+        # Selector de página
+        new_page = st.number_input(
+            f"📄 Página (de {total_pages})",
+            min_value=1,
+            max_value=total_pages,
+            value=current_page,
+            key=f"{key_prefix}_selector",
+            help=f"Navega entre las {total_pages} páginas disponibles"
+        )
+        # Actualizar si cambió
+        if new_page != current_page:
+            st.session_state[f"{key_prefix}_page"] = new_page
+            current_page = new_page
     
-    with col4:
-        if st.button("Última ⏭️", key=f"{key_prefix}_last", disabled=(current_page == total_pages)):
-            st.session_state[f"{key_prefix}_page"] = total_pages
-            st.rerun()
+    with col2:
+        st.write("")  # Espaciado
+        st.caption(f"📊 Mostrando registros {(current_page-1)*page_size + 1} - {min(current_page*page_size, total_rows)} de {total_rows} totales")
     
     # Calcular índices
     start_idx = (current_page - 1) * page_size

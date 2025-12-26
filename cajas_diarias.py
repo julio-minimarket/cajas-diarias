@@ -979,17 +979,6 @@ if active_tab == "📝 Carga":
     )
     
     # Info de Fase 2
-    st.markdown("---")
-    st.info("""
-    ✅ **FASE 2 - ETAPA 2 (PARTE 1)**: Fragmento en Tab Carga
-    - ✅ Al guardar movimiento → Solo recarga formulario (0.4 seg)
-    - ✅ Sidebar y tabs NO se recargan
-    - ✅ 84% más rápido que antes
-    - ✅ Ideal para cargas masivas
-    
-    🚀 **Siguiente**: Fragmento en Tab CRM
-    """)
-
 # ==================== FIN DEL CÓDIGO TAB1 ====================
 
 # ==================== TAB 2: RESUMEN (OPTIMIZADO) ====================
@@ -1203,18 +1192,6 @@ elif active_tab == "📊 Resumen del Día":
         fecha_mov
     )
     
-    # Info de Fase 2
-    st.markdown("---")
-    st.info("""
-    ✅ **FASE 2 - ETAPA 1 IMPLEMENTADA**: Fragmentos en Resumen del Día
-    - ✅ Botón "Actualizar Métricas" → Solo recarga métricas (0.3 seg)
-    - ✅ Botón "Actualizar Detalle" → Solo recarga tablas (0.4 seg)
-    - ✅ Sidebar y tabs NO se recargan
-    - ✅ 89% más rápido que antes
-    
-    🚀 **Próximas etapas**: Fragmentos en Carga y CRM, Lazy loading, Paginación
-    """)
-
 # ==================== FIN DEL CÓDIGO TAB2 ====================
 # ==================== RESTO DEL CÓDIGO ====================
 # NOTA: Las demás tabs (Reportes, CRM, Conciliación, Mantenimiento) siguen igual
@@ -1913,15 +1890,6 @@ elif active_tab == "💼 CRM" and auth.is_admin():
         st.info("💡 **Próximos pasos:** Ve a la pestaña '🔄 Conciliación Cajas' para comparar los datos cargados con el sistema de cajas.")
         
         # Info de Fase 2
-        st.markdown("---")
-        st.info("""
-        ✅ **FASE 2 - ETAPA 2 (PARTE 2)**: Fragmento en Tab CRM
-        - ✅ Al guardar datos CRM → Solo recarga formulario (0.4 seg)
-        - ✅ Sidebar y tabs NO se recargan
-        - ✅ 83% más rápido que antes
-        
-        🎉 **Etapa 2 completa!** Próximo: Lazy loading y paginación (Etapa 3)
-        """)
 
 # ==================== FIN DEL CÓDIGO TAB4 ====================
 

@@ -164,9 +164,10 @@ def manejar_error_supabase(mensaje_personalizado=None):
 @manejar_error_supabase("Error al cargar sucursales")
 def obtener_sucursales():
     """Obtiene sucursales activas. Usa caché de 30 segundos."""
-    # 🚀 FASE 3 - PARTE 4: Selección específica de columnas (80% menos datos)
+    # 🚀 FASE 3 - PARTE 4: Selección específica de columnas
+    # CORREGIDO: Removida 'razon_social' que no existe en la tabla
     result = supabase.table("sucursales")\
-        .select("id, nombre, razon_social, sistema_crm")\
+        .select("id, nombre, sistema_crm")\
         .eq("activa", True)\
         .order("nombre")\
         .execute()

@@ -1773,10 +1773,6 @@ elif active_tab == "💼 CRM y Conciliación" and auth.is_admin():
         
         # ==================== SUB-TAB: CARGAR DATOS CRM ====================
         with tab_crm:
-            st.subheader("💼 Datos de CRM por Sucursal")
-        
-            st.info("📊 Esta sección permite cargar los datos de ventas y tickets desde los sistemas CRM de cada sucursal para comparación y control.")
-        
             # 🆕 FRAGMENTO: Formulario CRM independiente
             @st.fragment
             def formulario_carga_crm(sucursal_id, sucursal_nombre):
@@ -1903,10 +1899,6 @@ elif active_tab == "💼 CRM y Conciliación" and auth.is_admin():
         
         # ==================== SUB-TAB: CONCILIACIÓN CAJAS ====================
         with tab_conciliacion:
-            st.subheader("🔄 Conciliación: Sistema de Cajas vs CRM")
-        
-            st.info("📊 En esta sección puedes comparar los datos del sistema de cajas con los datos de CRM para detectar diferencias y asegurar la integridad de la información.")
-        
             # Tabs para diferentes tipos de informes
             tab_concil_diario, tab_concil_mensual, tab_concil_individual = st.tabs([
                 "📅 Informe Diario",

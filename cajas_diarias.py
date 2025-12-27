@@ -453,7 +453,7 @@ with st.sidebar.expander("ℹ️ Actualización de Datos", expanded=False):
     2. O espera 30 segundos
     3. O presiona **F5**
     """)
-    if st.button("🔄 Limpiar Todo el Caché", use_container_width=True, key="limpiar_cache_global"):
+    if st.button("🔄 Limpiar Todo el Caché", width="stretch", key="limpiar_cache_global"):
         st.cache_data.clear()
         st.success("✅ Caché limpiado - Los datos se actualizarán en tu próxima acción")
 
@@ -634,7 +634,7 @@ if active_tab == "📝 Carga":
                         st.error("No hay medios de pago disponibles")
                         medio_pago_seleccionado = None
             
-            submitted = st.form_submit_button("💾 Guardar", use_container_width=True, type="primary")
+            submitted = st.form_submit_button("💾 Guardar", width="stretch", type="primary")
             
             if submitted:
                 # VALIDAR FECHA antes de guardar
@@ -817,7 +817,7 @@ elif active_tab == "📊 Resumen del Día":
                         
                         st.dataframe(
                             resumen_agrupado[['Grupo', 'Monto Formato']].rename(columns={'Monto Formato': 'Monto'}),
-                            use_container_width=True,
+                            width="stretch",
                             hide_index=True
                         )
                         
@@ -826,7 +826,7 @@ elif active_tab == "📊 Resumen del Día":
                                 detalle_electronicos = medios_electronicos_df.groupby('medio_pago_nombre')['monto'].sum().reset_index()
                                 detalle_electronicos.columns = ['Medio de Pago', 'Monto']
                                 detalle_electronicos['Monto'] = detalle_electronicos['Monto'].apply(lambda x: f"${x:,.2f}")
-                                st.dataframe(detalle_electronicos, use_container_width=True, hide_index=True)
+                                st.dataframe(detalle_electronicos, width="stretch", hide_index=True)
                 
                 st.success("✅ Métricas actualizadas correctamente")
             else:
@@ -873,7 +873,7 @@ elif active_tab == "📊 Resumen del Día":
                     df_ventas_display['monto'] = df_ventas_display['monto'].apply(lambda x: f"${x:,.2f}")
                     df_ventas_display.columns = ['Categoría', 'Concepto', 'Monto', 'Medio Pago', 'Usuario']
                     
-                    st.dataframe(df_ventas_display, use_container_width=True, hide_index=True)
+                    st.dataframe(df_ventas_display, width="stretch", hide_index=True)
                     st.markdown(f"**TOTAL VENTAS: ${montos_ventas.sum():,.2f}**")
                     st.markdown("---")
                 
@@ -887,7 +887,7 @@ elif active_tab == "📊 Resumen del Día":
                     df_gastos_display['monto'] = df_gastos_display['monto'].apply(lambda x: f"${x:,.2f}")
                     df_gastos_display.columns = ['Categoría', 'Concepto', 'Monto', 'Medio Pago', 'Usuario']
                     
-                    st.dataframe(df_gastos_display, use_container_width=True, hide_index=True)
+                    st.dataframe(df_gastos_display, width="stretch", hide_index=True)
                     st.markdown(f"**TOTAL GASTOS: ${montos_gastos.sum():,.2f}**")
                     st.markdown("---")
                 
@@ -993,7 +993,7 @@ elif active_tab == "📈 Reportes" and auth.is_admin():
                 st.markdown("---")
                 
                 # Botón de submit del formulario
-                submitted = st.form_submit_button("📊 Generar Reporte", type="primary", use_container_width=True)
+                submitted = st.form_submit_button("📊 Generar Reporte", type="primary", width="stretch")
             
             # Procesar el formulario solo si se presionó el botón
             if submitted:
@@ -1253,7 +1253,7 @@ elif active_tab == "📈 Reportes" and auth.is_admin():
                             df_resumen_diario_display['Total Ventas'] = df_resumen_diario_display['Total Ventas'].apply(lambda x: f"${x:,.2f}")
                             df_resumen_diario_display['Ticket Promedio'] = df_resumen_diario_display['Ticket Promedio'].apply(lambda x: f"${x:,.2f}")
                             
-                            st.dataframe(df_resumen_diario_display, use_container_width=True, hide_index=True)
+                            st.dataframe(df_resumen_diario_display, width="stretch", hide_index=True)
                             
                             # Botón para descargar resumen diario
                             csv_diario = df_resumen_diario.to_csv(index=False)
@@ -1278,7 +1278,7 @@ elif active_tab == "📈 Reportes" and auth.is_admin():
                                 for col in resumen_display.columns:
                                     resumen_display[col] = resumen_display[col].apply(lambda x: f"${x:,.2f}")
                                 
-                                st.dataframe(resumen_display, use_container_width=True)
+                                st.dataframe(resumen_display, width="stretch")
                                 
                                 st.markdown("---")
                             
@@ -1286,7 +1286,7 @@ elif active_tab == "📈 Reportes" and auth.is_admin():
                             st.markdown("### 📂 Resumen por Categoría")
                             
                             resumen_cat = df.groupby(['tipo', 'categoria_nombre'])['monto'].sum().unstack(fill_value=0)
-                            st.dataframe(resumen_cat.style.format("${:,.2f}"), use_container_width=True)
+                            st.dataframe(resumen_cat.style.format("${:,.2f}"), width="stretch")
                             
                             st.markdown("---")
                             
@@ -1297,7 +1297,7 @@ elif active_tab == "📈 Reportes" and auth.is_admin():
                             resumen_medios.columns = ['Medio de Pago', 'Monto Total']
                             resumen_medios = resumen_medios.sort_values('Monto Total', ascending=False)
                             resumen_medios['Monto Total'] = resumen_medios['Monto Total'].apply(lambda x: f"${x:,.2f}")
-                            st.dataframe(resumen_medios, use_container_width=True, hide_index=True)
+                            st.dataframe(resumen_medios, width="stretch", hide_index=True)
                             
                             st.markdown("---")
                             
@@ -1309,7 +1309,7 @@ elif active_tab == "📈 Reportes" and auth.is_admin():
                             df_detalle['monto'] = df_detalle['monto'].apply(lambda x: f"${x:,.2f}")
                             df_detalle.columns = ['Fecha', 'Sucursal', 'Tipo', 'Categoría', 'Concepto', 'Monto', 'Medio Pago']
                             
-                            st.dataframe(df_detalle, use_container_width=True, hide_index=True)
+                            st.dataframe(df_detalle, width="stretch", hide_index=True)
                             
                             # Botón para descargar CSV
                             csv = df[['fecha', 'sucursal_nombre', 'tipo', 'categoria_nombre', 'concepto', 'monto', 'medio_pago_nombre']].to_csv(index=False)
@@ -1398,7 +1398,7 @@ elif active_tab == "📈 Reportes" and auth.is_admin():
                     )
                 
                 # Botón de submit del formulario
-                submitted_gastos = st.form_submit_button("📊 Generar Reporte de Gastos", type="primary", use_container_width=True)
+                submitted_gastos = st.form_submit_button("📊 Generar Reporte de Gastos", type="primary", width="stretch")
             
             # Procesar el formulario solo si se presionó el botón
             if submitted_gastos:
@@ -1496,7 +1496,7 @@ elif active_tab == "📈 Reportes" and auth.is_admin():
                                 resumen_display['Monto Total'] = resumen_display['Monto Total'].apply(lambda x: f"${x:,.2f}")
                                 resumen_display['% del Total'] = resumen_display['% del Total'].apply(lambda x: f"{x:.2f}%")
                                 
-                                st.dataframe(resumen_display, use_container_width=True, hide_index=True)
+                                st.dataframe(resumen_display, width="stretch", hide_index=True)
                                 
                                 # Detalle expandible
                                 with st.expander(f"📋 Ver detalle de movimientos de {sucursal}"):
@@ -1505,7 +1505,7 @@ elif active_tab == "📈 Reportes" and auth.is_admin():
                                     df_detalle_suc['monto_formato'] = df_detalle_suc['monto'].apply(lambda x: f"${x:,.2f}")
                                     df_detalle_suc = df_detalle_suc[['fecha', 'categoria_nombre', 'concepto', 'monto_formato', 'medio_pago_nombre', 'usuario']]
                                     df_detalle_suc.columns = ['Fecha', 'Categoría', 'Concepto', 'Monto', 'Medio Pago', 'Usuario']
-                                    st.dataframe(df_detalle_suc, use_container_width=True, hide_index=True)
+                                    st.dataframe(df_detalle_suc, width="stretch", hide_index=True)
                                 
                                 st.markdown("---")
                             
@@ -1521,7 +1521,7 @@ elif active_tab == "📈 Reportes" and auth.is_admin():
                             resumen_consolidado_display['Monto Total'] = resumen_consolidado_display['Monto Total'].apply(lambda x: f"${x:,.2f}")
                             resumen_consolidado_display['% del Total'] = resumen_consolidado_display['% del Total'].apply(lambda x: f"{x:.2f}%")
                             
-                            st.dataframe(resumen_consolidado_display, use_container_width=True, hide_index=True)
+                            st.dataframe(resumen_consolidado_display, width="stretch", hide_index=True)
                             
                             # Botón para descargar CSV
                             st.markdown("---")
@@ -1531,7 +1531,7 @@ elif active_tab == "📈 Reportes" and auth.is_admin():
                                 data=csv_gastos,
                                 file_name=f"reporte_gastos_{fecha_desde_gastos}_{fecha_hasta_gastos}.csv",
                                 mime="text/csv",
-                                use_container_width=True
+                                width="stretch"
                             )
                         else:
                             st.warning(f"⚠️ No hay gastos registrados para el período seleccionado")
@@ -1627,7 +1627,7 @@ elif active_tab == "💼 CRM" and auth.is_admin():
                 # Botón de guardar
                 col_btn1, col_btn2 = st.columns([3, 1])
                 with col_btn2:
-                    submitted_crm = st.form_submit_button("💾 Guardar", use_container_width=True, type="primary")
+                    submitted_crm = st.form_submit_button("💾 Guardar", width="stretch", type="primary")
                 
                 if submitted_crm:
                     if total_ventas_crm <= 0 or cantidad_tickets <= 0:
@@ -1719,7 +1719,7 @@ elif active_tab == "🔄 Conciliación Cajas" and auth.is_admin():
                 )
                 
                 # Botón de submit del formulario
-                submitted_informe_diario = st.form_submit_button("📊 Generar Informe Diario", type="primary", use_container_width=True)
+                submitted_informe_diario = st.form_submit_button("📊 Generar Informe Diario", type="primary", width="stretch")
             
             # Procesar el formulario solo si se presionó el botón
             if submitted_informe_diario:
@@ -1813,7 +1813,7 @@ elif active_tab == "🔄 Conciliación Cajas" and auth.is_admin():
                         # Mostrar tabla con colores
                         st.dataframe(
                             df_display,
-                            use_container_width=True,
+                            width="stretch",
                             hide_index=True,
                             column_config={
                                 "Estado": st.column_config.TextColumn(
@@ -1865,7 +1865,7 @@ elif active_tab == "🔄 Conciliación Cajas" and auth.is_admin():
                     key="mes_mensual"
                 )
             
-            if st.button("📊 Generar Informe Mensual", type="primary", use_container_width=True):
+            if st.button("📊 Generar Informe Mensual", type="primary", width="stretch"):
                 try:
                     # Calcular fechas del mes
                     from calendar import monthrange
@@ -1969,7 +1969,7 @@ elif active_tab == "🔄 Conciliación Cajas" and auth.is_admin():
                         # Mostrar tabla
                         st.dataframe(
                             df_display_mensual,
-                            use_container_width=True,
+                            width="stretch",
                             hide_index=True
                         )
                         
@@ -2012,7 +2012,7 @@ elif active_tab == "🔄 Conciliación Cajas" and auth.is_admin():
                     )
                 
                 # Botón de submit del formulario
-                submitted_comparar = st.form_submit_button("🔍 Comparar", type="primary", use_container_width=True)
+                submitted_comparar = st.form_submit_button("🔍 Comparar", type="primary", width="stretch")
             
             # Procesar el formulario solo si se presionó el botón
             if submitted_comparar:
@@ -2208,9 +2208,9 @@ elif active_tab == "🔧 Mantenimiento" and auth.is_admin():
                         # Botones de filtros
                         col_btn1, col_btn2 = st.columns([1, 4])
                         with col_btn1:
-                            aplicar_filtros = st.form_submit_button("🔍 Aplicar Filtros", use_container_width=True)
+                            aplicar_filtros = st.form_submit_button("🔍 Aplicar Filtros", width="stretch")
                         with col_btn2:
-                            if st.form_submit_button("🔄 Limpiar Filtros", use_container_width=True):
+                            if st.form_submit_button("🔄 Limpiar Filtros", width="stretch"):
                                 st.session_state.filtro_sucursal = None
                                 st.session_state.filtro_fecha_desde = None
                                 st.session_state.filtro_fecha_hasta = None
@@ -2286,7 +2286,7 @@ elif active_tab == "🔧 Mantenimiento" and auth.is_admin():
                     # Editor de datos
                     df_editado = st.data_editor(
                         df_edit,
-                        use_container_width=True,
+                        width="stretch",
                         num_rows="fixed",
                         disabled=tablas_config[tabla_seleccionada]["columnas_ocultas"],
                         hide_index=True,
@@ -2302,7 +2302,7 @@ elif active_tab == "🔧 Mantenimiento" and auth.is_admin():
                         col_btn1, col_btn2 = st.columns([1, 3])
                         
                         with col_btn1:
-                            if st.button("💾 Guardar Cambios", type="primary", use_container_width=True):
+                            if st.button("💾 Guardar Cambios", type="primary", width="stretch"):
                                 try:
                                     # Encontrar filas modificadas
                                     filas_modificadas = []
@@ -2347,7 +2347,7 @@ elif active_tab == "🔧 Mantenimiento" and auth.is_admin():
                                     st.error(f"❌ Error al guardar: {str(e)}")
                         
                         with col_btn2:
-                            if st.button("↩️ Cancelar Cambios", use_container_width=True):
+                            if st.button("↩️ Cancelar Cambios", width="stretch"):
                                 st.rerun()
                     else:
                         st.info("✅ No hay cambios pendientes")
@@ -2453,7 +2453,7 @@ elif active_tab == "🔧 Mantenimiento" and auth.is_admin():
                     nuevo_registro['cantidad_tickets'] = st.number_input("Cantidad de Tickets *", min_value=0, step=1)
                     nuevo_registro['usuario'] = st.session_state.user['nombre']
                 
-                submitted = st.form_submit_button("➕ Agregar Registro", type="primary", use_container_width=True)
+                submitted = st.form_submit_button("➕ Agregar Registro", type="primary", width="stretch")
                 
                 if submitted:
                     try:
@@ -2522,12 +2522,12 @@ elif active_tab == "🔧 Mantenimiento" and auth.is_admin():
                                 df_encontrados = pd.DataFrame(registros_encontrados)
                                 
                                 st.markdown(f"**✅ Se encontraron {len(registros_encontrados)} registros:**")
-                                st.dataframe(df_encontrados, use_container_width=True, hide_index=True)
+                                st.dataframe(df_encontrados, width="stretch", hide_index=True)
                                 
                                 # Botón de confirmación
                                 col_conf1, col_conf2 = st.columns([1, 3])
                                 with col_conf1:
-                                    if st.button("🗑️ Confirmar Eliminación", type="primary", use_container_width=True, key="confirmar_rapido"):
+                                    if st.button("🗑️ Confirmar Eliminación", type="primary", width="stretch", key="confirmar_rapido"):
                                         errores = []
                                         exitosos = 0
                                         
@@ -2692,9 +2692,9 @@ elif active_tab == "🔧 Mantenimiento" and auth.is_admin():
                             cols_disponibles = [col for col in cols_orden if col in df_display.columns]
                             df_display = df_display[cols_disponibles]
                             
-                            st.dataframe(df_display, use_container_width=True, hide_index=True)
+                            st.dataframe(df_display, width="stretch", hide_index=True)
                         else:
-                            st.dataframe(df_resultados, use_container_width=True, hide_index=True)
+                            st.dataframe(df_resultados, width="stretch", hide_index=True)
                         
                         st.markdown("---")
                         st.warning("⚠️ **Cuidado:** Esta acción no se puede deshacer.")

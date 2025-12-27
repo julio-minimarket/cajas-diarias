@@ -821,7 +821,7 @@ def main():
                 
                 observaciones = st.text_area("Observaciones (opcional)", height=80)
                 
-                submitted = st.form_submit_button("💾 Registrar Compra", use_container_width=True, type="primary")
+                submitted = st.form_submit_button("💾 Registrar Compra", width="stretch", type="primary")
                 
                 if submitted and importe > 0:
                     nuevo_saldo = saldo_actual + Decimal(str(importe))
@@ -984,12 +984,12 @@ def main():
                         col_btn1, col_btn2 = st.columns(2)
                         
                         with col_btn1:
-                            if st.button("🗑️ Limpiar", use_container_width=True):
+                            if st.button("🗑️ Limpiar", width="stretch"):
                                 st.session_state.comprobantes_seleccionados = {}
                                 st.rerun()
                         
                         with col_btn2:
-                            if st.button("💾 Confirmar Pago", type="primary", use_container_width=True):
+                            if st.button("💾 Confirmar Pago", type="primary", width="stretch"):
                                 usuario = st.session_state.get('user', {}).get('nombre', 'Sistema')
                                 
                                 comps_cancelar = [
@@ -1041,7 +1041,7 @@ def main():
                 
                 st.dataframe(
                     df[['nro_cliente', 'denominacion', 'saldo', 'estado_saldo']],
-                    use_container_width=True,
+                    width="stretch",
                     hide_index=True,
                     column_config={
                         "nro_cliente": "Nro.",
@@ -1082,7 +1082,7 @@ def main():
                 
                 obs_cliente = st.text_area("Observaciones", height=80)
                 
-                if st.form_submit_button("💾 Crear Cliente", use_container_width=True, type="primary"):
+                if st.form_submit_button("💾 Crear Cliente", width="stretch", type="primary"):
                     # Validaciones
                     if not denominacion_nueva:
                         st.error("⚠️ La denominación es obligatoria")
@@ -1125,7 +1125,7 @@ def main():
                         
                         obs_edit = st.text_area("Observaciones", value=cliente_editar.get('observaciones') or '')
                         
-                        if st.form_submit_button("💾 Guardar", use_container_width=True, type="primary"):
+                        if st.form_submit_button("💾 Guardar", width="stretch", type="primary"):
                             datos = {
                                 'denominacion': denom_edit.strip().upper(),
                                 'telefono': tel_edit.strip() if tel_edit else None,
@@ -1178,7 +1178,7 @@ def main():
                     
                     if estado['movimientos']:
                         df = pd.DataFrame(estado['movimientos'])
-                        st.dataframe(df, use_container_width=True, hide_index=True,
+                        st.dataframe(df, width="stretch", hide_index=True,
                                      column_config={
                                          "debe": st.column_config.NumberColumn("Debe", format="$ %.2f"),
                                          "haber": st.column_config.NumberColumn("Haber", format="$ %.2f"),
@@ -1248,7 +1248,7 @@ def main():
                 
                 st.dataframe(
                     df_show[['nro_cliente', 'denominacion', 'saldo', 'estado_saldo']],
-                    use_container_width=True,
+                    width="stretch",
                     hide_index=True,
                     column_config={
                         "nro_cliente": "Nro.",
@@ -1364,7 +1364,7 @@ def main():
                 
                 st.dataframe(
                     df_fact,
-                    use_container_width=True,
+                    width="stretch",
                     hide_index=True,
                     column_config={
                         "Importe": st.column_config.NumberColumn(format="$ %.2f"),
@@ -1413,7 +1413,7 @@ def main():
                         col_btn1, col_btn2 = st.columns(2)
                         
                         with col_btn1:
-                            if st.form_submit_button("💾 Guardar Cambios", use_container_width=True, type="primary"):
+                            if st.form_submit_button("💾 Guardar Cambios", width="stretch", type="primary"):
                                 datos_actualizar = {
                                     'fecha': fecha_edit_fact.isoformat(),
                                     'nro_comprobante': nro_comp_edit.strip().upper() if nro_comp_edit else None,
@@ -1426,7 +1426,7 @@ def main():
                                     st.rerun()
                         
                         with col_btn2:
-                            eliminar_fact = st.form_submit_button("🗑️ Eliminar", use_container_width=True)
+                            eliminar_fact = st.form_submit_button("🗑️ Eliminar", width="stretch")
                     
                     # Verificar si tiene pagos aplicados
                     tiene_pagos = float(factura['saldo_pendiente']) < float(factura['importe'])
@@ -1444,7 +1444,7 @@ def main():
                         
                         col_conf1, col_conf2 = st.columns(2)
                         with col_conf1:
-                            if st.button("✅ Sí, eliminar", key="confirmar_elim_fact", type="primary", use_container_width=True):
+                            if st.button("✅ Sí, eliminar", key="confirmar_elim_fact", type="primary", width="stretch"):
                                 resultado = eliminar_operacion(factura['id'])
                                 if resultado:
                                     st.session_state['confirmar_eliminar_fact'] = None
@@ -1453,7 +1453,7 @@ def main():
                                 else:
                                     st.error("❌ No se pudo eliminar la factura")
                         with col_conf2:
-                            if st.button("❌ Cancelar", key="cancelar_elim_fact", use_container_width=True):
+                            if st.button("❌ Cancelar", key="cancelar_elim_fact", width="stretch"):
                                 st.session_state['confirmar_eliminar_fact'] = None
                                 st.rerun()
             else:
@@ -1500,7 +1500,7 @@ def main():
                 
                 st.dataframe(
                     df_pagos,
-                    use_container_width=True,
+                    width="stretch",
                     hide_index=True,
                     column_config={
                         "Importe": st.column_config.NumberColumn(format="$ %.2f")
@@ -1539,7 +1539,7 @@ def main():
                         col_btn1, col_btn2 = st.columns(2)
                         
                         with col_btn1:
-                            if st.form_submit_button("💾 Guardar Cambios", use_container_width=True, type="primary"):
+                            if st.form_submit_button("💾 Guardar Cambios", width="stretch", type="primary"):
                                 datos_actualizar_pago = {
                                     'fecha': fecha_edit_pago.isoformat(),
                                     'nro_comprobante': nro_recibo_edit.strip().upper() if nro_recibo_edit else None,
@@ -1550,7 +1550,7 @@ def main():
                                     st.rerun()
                         
                         with col_btn2:
-                            eliminar_pago_btn = st.form_submit_button("🗑️ Eliminar", use_container_width=True)
+                            eliminar_pago_btn = st.form_submit_button("🗑️ Eliminar", width="stretch")
                     
                     # Usar session_state para manejar la confirmación
                     if eliminar_pago_btn:
@@ -1563,7 +1563,7 @@ def main():
                         
                         col_conf1, col_conf2 = st.columns(2)
                         with col_conf1:
-                            if st.button("✅ Sí, eliminar", key="confirmar_elim_pago", type="primary", use_container_width=True):
+                            if st.button("✅ Sí, eliminar", key="confirmar_elim_pago", type="primary", width="stretch"):
                                 resultado = eliminar_operacion(pago['id'])
                                 if resultado:
                                     st.session_state['confirmar_eliminar_pago'] = None
@@ -1572,7 +1572,7 @@ def main():
                                 else:
                                     st.error("❌ No se pudo eliminar el pago")
                         with col_conf2:
-                            if st.button("❌ Cancelar", key="cancelar_elim_pago", use_container_width=True):
+                            if st.button("❌ Cancelar", key="cancelar_elim_pago", width="stretch"):
                                 st.session_state['confirmar_eliminar_pago'] = None
                                 st.rerun()
             else:

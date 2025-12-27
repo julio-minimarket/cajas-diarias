@@ -125,7 +125,7 @@ def show_login_form():
     with st.form("login_form"):
         email = st.text_input("📧 Email", placeholder="usuario@cajas.local")
         password = st.text_input("🔑 Contraseña", type="password")
-        submit = st.form_submit_button("🚀 Iniciar Sesión", use_container_width=True)
+        submit = st.form_submit_button("🚀 Iniciar Sesión", width="stretch")
         
         if submit:
             if not email or not password:
@@ -231,9 +231,9 @@ def mostrar_cambio_password():
         
         col1, col2 = st.columns(2)
         with col1:
-            submit = st.form_submit_button("💾 Cambiar", use_container_width=True)
+            submit = st.form_submit_button("💾 Cambiar", width="stretch")
         with col2:
-            cancel = st.form_submit_button("❌ Cancelar", use_container_width=True)
+            cancel = st.form_submit_button("❌ Cancelar", width="stretch")
         
         if cancel:
             st.session_state.mostrar_cambio_pwd = False
@@ -289,11 +289,11 @@ def mostrar_info_usuario_sidebar():
         st.markdown("---")
         
         # Botones de acción
-        if st.button("🔒 Cambiar Contraseña", use_container_width=True, key="btn_cambiar_pwd"):
+        if st.button("🔒 Cambiar Contraseña", width="stretch", key="btn_cambiar_pwd"):
             st.session_state.mostrar_cambio_pwd = True
             st.rerun()
         
-        if st.button("🚪 Cerrar Sesión", use_container_width=True, key="btn_logout"):
+        if st.button("🚪 Cerrar Sesión", width="stretch", key="btn_logout"):
             logout()
             st.rerun()
 

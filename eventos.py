@@ -404,9 +404,9 @@ def mostrar_formulario_carga():
         # Botón de submit
         col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 2])
         with col_btn1:
-            submitted = st.form_submit_button("💾 Guardar Evento", use_container_width=True)
+            submitted = st.form_submit_button("💾 Guardar Evento", width="stretch")
         with col_btn2:
-            cancelar = st.form_submit_button("❌ Cancelar", use_container_width=True)
+            cancelar = st.form_submit_button("❌ Cancelar", width="stretch")
         
         if cancelar:
             st.rerun()
@@ -504,7 +504,7 @@ def mostrar_listado_eventos():
         'Costo Total': (df_eventos['cachet_artista'] + df_eventos['contratacion_sonido']).apply(formatear_moneda)
     })
     
-    st.dataframe(df_display, use_container_width=True, hide_index=True)
+    st.dataframe(df_display, width="stretch", hide_index=True)
     
     # Totales
     total_cachets = df_eventos['cachet_artista'].sum()
@@ -557,7 +557,7 @@ def mostrar_analisis_impacto():
     
     with col2:
         st.write("")  # Espaciador
-        analizar_button = st.button("📈 Generar Análisis", type="primary", use_container_width=True)
+        analizar_button = st.button("📈 Generar Análisis", type="primary", width="stretch")
     
     # Mostrar análisis FUERA de las columnas (usa todo el ancho)
     if analizar_button:

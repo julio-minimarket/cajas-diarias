@@ -567,10 +567,7 @@ if active_tab == "📝 Carga":
     # 🆕 FRAGMENTO: Formulario de carga independiente
     @st.fragment
     def formulario_carga_movimiento(sucursal_id, sucursal_nombre, fecha_movimiento):
-        """
-        🆕 FASE 2 - ETAPA 2: Fragmento independiente para formulario de carga.
-        Solo esta sección se recarga al guardar un movimiento.
-        """
+        # Fragmento independiente para formulario de carga
         tipo = st.radio("Tipo de movimiento", ["Venta", "Gasto", "Sueldos"], horizontal=True, key="tipo_mov_frag")
         
         with st.form("form_movimiento", clear_on_submit=True):
@@ -745,10 +742,7 @@ elif active_tab == "📊 Resumen del Día":
     # 🆕 FRAGMENTO 1: Métricas Principales
     @st.fragment
     def mostrar_metricas_principales(sucursal_id, fecha, nombre_sucursal):
-        """
-        🆕 FASE 2 - ETAPA 1: Fragmento independiente para métricas.
-        Solo esta sección se recarga al presionar "Actualizar Métricas".
-        """
+        # Fragmento independiente para métricas
         # Botón de actualizar DENTRO del fragmento
         col_btn1, col_btn2 = st.columns([5, 1])
         with col_btn2:
@@ -844,10 +838,7 @@ elif active_tab == "📊 Resumen del Día":
     # 🆕 FRAGMENTO 2: Detalle de Movimientos
     @st.fragment
     def mostrar_detalle_movimientos(sucursal_id, fecha):
-        """
-        🆕 FASE 2 - ETAPA 1: Fragmento independiente para detalle de movimientos.
-        Solo esta sección se recarga al presionar "Actualizar Detalle".
-        """
+        # Fragmento independiente para detalle de movimientos
         st.markdown("---")
         
         # Botón de actualizar DENTRO del fragmento
@@ -1582,10 +1573,7 @@ elif active_tab == "💼 CRM" and auth.is_admin():
         # 🆕 FRAGMENTO: Formulario CRM independiente
         @st.fragment
         def formulario_carga_crm(sucursal_id, sucursal_nombre):
-            """
-            🆕 FASE 2 - ETAPA 2: Fragmento independiente para formulario CRM.
-            Solo esta sección se recarga al guardar datos CRM.
-            """
+            # Fragmento independiente para formulario CRM
             st.markdown("### 📝 Cargar Datos del CRM")
             
             # Obtener información del sistema CRM de la sucursal

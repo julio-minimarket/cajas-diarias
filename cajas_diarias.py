@@ -2305,6 +2305,13 @@ elif active_tab == "🔧 Mantenimiento" and auth.is_admin():
         
         st.warning("⚠️ **Importante:** Esta sección permite editar directamente los datos del sistema. Usa con precaución.")
         
+        # 🔧 FUNCIÓN CALLBACK para limpiar filtros
+        def limpiar_filtros_mantenimiento():
+            """Resetea todos los filtros del módulo de mantenimiento"""
+            st.session_state.filtro_sucursal = None
+            st.session_state.filtro_fecha_desde = None
+            st.session_state.filtro_fecha_hasta = None
+        
         # Definir las tablas disponibles con sus descripciones
         tablas_config = {
             "sucursales": {
@@ -2406,11 +2413,12 @@ elif active_tab == "🔧 Mantenimiento" and auth.is_admin():
                         with col_btn1:
                             aplicar_filtros = st.form_submit_button("🔍 Aplicar Filtros", width="stretch")
                         with col_btn2:
-                            if st.form_submit_button("🔄 Limpiar Filtros", width="stretch"):
-                                st.session_state.filtro_sucursal = None
-                                st.session_state.filtro_fecha_desde = None
-                                st.session_state.filtro_fecha_hasta = None
-                                st.rerun()
+                            # 🔧 Botón con callback para evitar error de modificación de widget
+                            st.form_submit_button(
+                                "🔄 Limpiar Filtros",
+                                width="stretch",
+                                on_click=limpiar_filtros_mantenimiento
+                            )
                     
                     # Mostrar filtros activos
                     if aplicar_filtros and (sucursal_filtro or fecha_desde or fecha_hasta):

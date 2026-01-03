@@ -2285,11 +2285,10 @@ elif active_tab == "💼 CRM y Conciliación" and auth.is_admin():
                                 crm_sistema = supabase.table("sucursales_crm")\
                                     .select("sistema_crm")\
                                     .eq("sucursal_id", sucursal_comparacion['id'])\
-                                    .single()\
                                     .execute()
                             
-                                if crm_sistema.data:
-                                    st.info(f"💻 **Sistema CRM:** {crm_sistema.data['sistema_crm']}")
+                                if crm_sistema.data and len(crm_sistema.data) > 0:
+                                    st.info(f"💻 **Sistema CRM:** {crm_sistema.data[0]['sistema_crm']}")
                         else:
                             st.warning(f"⚠️ No hay datos de CRM cargados para {sucursal_comparacion['nombre']} en la fecha {fecha_comparacion.strftime('%d/%m/%Y')}")
                             st.info(f"💼 Sistema de Cajas registró: ${total_cajas:,.2f}")

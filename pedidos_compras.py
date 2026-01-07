@@ -98,7 +98,7 @@ def obtener_pedidos_pendientes():
     """Obtiene todos los pedidos pendientes de revisión (Admin)"""
     try:
         result = supabase.table('pedidos')\
-            .select('*, sucursales(nombre, codigo), user_profiles(nombre_completo)')\
+            .select('*, sucursales(nombre, codigo)')\
             .eq('estado', 'PENDIENTE_REVISION')\
             .order('fecha_pedido', desc=False)\
             .execute()

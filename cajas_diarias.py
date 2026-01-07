@@ -1165,6 +1165,61 @@ elif active_tab == "📊 Resumen del Día":
         except Exception as e:
             st.error(f"❌ Error al cargar métricas: {str(e)}")
     
+    # 🆕 SECCIÓN ESPECIAL: Detalle por Punto de Venta (solo Belfast)
+    if sucursal_seleccionada['id'] == 4:  # Belfast
+        try:
+            movimientos_data = obtener_movimientos_fecha(sucursal_seleccionada['id'], fecha_mov)
+            
+            if movimientos_data:
+                df_mov = pd.DataFrame(movimientos_data)
+                
+                # Verificar si hay puntos de venta
+                if 'puntos_venta' in df_mov.columns:
+                    df_mov['punto_venta_nombre'] = df_mov['puntos_venta'].apply(lambda x: x['nombre'] if x else '')
+                    
+                    # Filtrar solo ventas con punto de venta definido
+                    df_ventas_pv = df_mov[(df_mov['tipo'] == 'venta') & (df_mov['punto_venta_nombre'] != '')]
+                    
+                    if len(df_ventas_pv) > 0:
+                        st.markdown("---")
+                        st.markdown("### 🎯 Detalle por Punto de Venta")
+                        
+                        # Resumen por punto de venta
+                        resumen_pv = df_ventas_pv.groupby('punto_venta_nombre')['monto'].agg([
+                            ('Total Ventas', 'sum'),
+                            ('Cantidad', 'count')
+                        ]).reset_index()
+                        
+                        resumen_pv.columns = ['Punto de Venta', 'Total Ventas', 'Cantidad Movimientos']
+                        
+                        # Calcular total
+                        total_pv = resumen_pv['Total Ventas'].sum()
+                        cantidad_total = resumen_pv['Cantidad Movimientos'].sum()
+                        
+                        # Agregar porcentaje
+                        resumen_pv['% del Total'] = (resumen_pv['Total Ventas'] / total_pv * 100).round(2)
+                        
+                        # Ordenar por ventas descendente
+                        resumen_pv = resumen_pv.sort_values('Total Ventas', ascending=False)
+                        
+                        # Formatear montos
+                        resumen_pv_display = resumen_pv.copy()
+                        resumen_pv_display['Total Ventas'] = resumen_pv_display['Total Ventas'].apply(lambda x: f"${x:,.2f}")
+                        resumen_pv_display['% del Total'] = resumen_pv_display['% del Total'].apply(lambda x: f"{x:.1f}%")
+                        
+                        # Mostrar tabla
+                        st.dataframe(resumen_pv_display, width="stretch", hide_index=True)
+                        
+                        # Mostrar métricas del total
+                        col_t1, col_t2, col_t3 = st.columns(3)
+                        col_t1.metric("💰 Total del Día", f"${total_pv:,.2f}")
+                        col_t2.metric("🎫 Total Movimientos", f"{cantidad_total}")
+                        if cantidad_total > 0:
+                            col_t3.metric("💵 Promedio por Movimiento", f"${(total_pv/cantidad_total):,.2f}")
+        
+        except Exception as e:
+            st.error(f"❌ Error al cargar detalle por punto de venta: {str(e)}")
+    
     # 🆕 FRAGMENTO 2: Detalle de Movimientos
     @st.fragment
     def mostrar_detalle_movimientos(sucursal_id, fecha):
@@ -1560,48 +1615,54 @@ elif active_tab == "📈 Reportes" and auth.is_admin():
                                 
                                 st.dataframe(resumen_display, width="stretch")
                                 
-                                # 🆕 RESUMEN ESPECIAL PARA BELFAST CON PUNTOS DE VENTA
-                                df_belfast = df[df['sucursal_nombre'] == 'Belfast']
-                                if len(df_belfast) > 0 and 'punto_venta_nombre' in df_belfast.columns:
-                                    # Filtrar solo registros con punto de venta definido
-                                    df_belfast_con_pv = df_belfast[df_belfast['punto_venta_nombre'] != '']
-                                    
-                                    if len(df_belfast_con_pv) > 0:
-                                        st.markdown("#### 🎯 Detalle de Belfast por Punto de Venta")
-                                        
-                                        # Resumen por punto de venta (solo ventas)
-                                        df_belfast_ventas = df_belfast_con_pv[df_belfast_con_pv['tipo'] == 'venta']
-                                        
-                                        if len(df_belfast_ventas) > 0:
-                                            resumen_belfast = df_belfast_ventas.groupby('punto_venta_nombre')['monto'].agg([
-                                                ('Total Ventas', 'sum'),
-                                                ('Cantidad', 'count')
-                                            ]).reset_index()
-                                            
-                                            resumen_belfast.columns = ['Punto de Venta', 'Total Ventas', 'Cantidad Movimientos']
-                                            
-                                            # Calcular total Belfast
-                                            total_belfast = resumen_belfast['Total Ventas'].sum()
-                                            cantidad_total = resumen_belfast['Cantidad Movimientos'].sum()
-                                            
-                                            # Agregar porcentaje
-                                            resumen_belfast['% del Total'] = (resumen_belfast['Total Ventas'] / total_belfast * 100).round(2)
-                                            
-                                            # Formatear montos
-                                            resumen_belfast_display = resumen_belfast.copy()
-                                            resumen_belfast_display['Total Ventas'] = resumen_belfast_display['Total Ventas'].apply(lambda x: f"${x:,.2f}")
-                                            resumen_belfast_display['% del Total'] = resumen_belfast_display['% del Total'].apply(lambda x: f"{x:.1f}%")
-                                            
-                                            # Mostrar tabla
-                                            st.dataframe(resumen_belfast_display, width="stretch", hide_index=True)
-                                            
-                                            # Mostrar total
-                                            col_t1, col_t2, col_t3 = st.columns(3)
-                                            col_t1.metric("💰 Total Belfast", f"${total_belfast:,.2f}")
-                                            col_t2.metric("🎫 Movimientos", f"{cantidad_total}")
-                                            col_t3.metric("💵 Promedio por Movimiento", f"${(total_belfast/cantidad_total):,.2f}")
-                                
                                 st.markdown("---")
+                            
+                            # 🆕 RESUMEN ESPECIAL PARA BELFAST CON PUNTOS DE VENTA
+                            # Aparece tanto si "Todas las sucursales" está marcado como si solo se selecciona Belfast
+                            df_belfast = df[df['sucursal_nombre'] == 'Belfast']
+                            if len(df_belfast) > 0 and 'punto_venta_nombre' in df_belfast.columns:
+                                # Filtrar solo registros con punto de venta definido
+                                df_belfast_con_pv = df_belfast[df_belfast['punto_venta_nombre'] != '']
+                                
+                                if len(df_belfast_con_pv) > 0:
+                                    st.markdown("### 🎯 Detalle de Belfast por Punto de Venta")
+                                    
+                                    # Resumen por punto de venta (solo ventas)
+                                    df_belfast_ventas = df_belfast_con_pv[df_belfast_con_pv['tipo'] == 'venta']
+                                    
+                                    if len(df_belfast_ventas) > 0:
+                                        resumen_belfast = df_belfast_ventas.groupby('punto_venta_nombre')['monto'].agg([
+                                            ('Total Ventas', 'sum'),
+                                            ('Cantidad', 'count')
+                                        ]).reset_index()
+                                        
+                                        resumen_belfast.columns = ['Punto de Venta', 'Total Ventas', 'Cantidad Movimientos']
+                                        
+                                        # Calcular total Belfast
+                                        total_belfast = resumen_belfast['Total Ventas'].sum()
+                                        cantidad_total = resumen_belfast['Cantidad Movimientos'].sum()
+                                        
+                                        # Agregar porcentaje
+                                        resumen_belfast['% del Total'] = (resumen_belfast['Total Ventas'] / total_belfast * 100).round(2)
+                                        
+                                        # Ordenar por ventas descendente
+                                        resumen_belfast = resumen_belfast.sort_values('Total Ventas', ascending=False)
+                                        
+                                        # Formatear montos
+                                        resumen_belfast_display = resumen_belfast.copy()
+                                        resumen_belfast_display['Total Ventas'] = resumen_belfast_display['Total Ventas'].apply(lambda x: f"${x:,.2f}")
+                                        resumen_belfast_display['% del Total'] = resumen_belfast_display['% del Total'].apply(lambda x: f"{x:.1f}%")
+                                        
+                                        # Mostrar tabla
+                                        st.dataframe(resumen_belfast_display, width="stretch", hide_index=True)
+                                        
+                                        # Mostrar total
+                                        col_t1, col_t2, col_t3 = st.columns(3)
+                                        col_t1.metric("💰 Total Belfast", f"${total_belfast:,.2f}")
+                                        col_t2.metric("🎫 Movimientos", f"{cantidad_total}")
+                                        col_t3.metric("💵 Promedio por Movimiento", f"${(total_belfast/cantidad_total):,.2f}")
+                                    
+                                    st.markdown("---")
                             
                             # Resumen por categoría
                             st.markdown("### 📂 Resumen por Categoría")

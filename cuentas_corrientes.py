@@ -814,9 +814,10 @@ def main():
                 with col2:
                     importe = st.number_input(
                         "Importe ($) *",
-                        min_value=0.01,
+                        min_value=1.00,
                         step=0.01,
-                        format="%.2f"
+                        format="%.2f",
+                        help="Importe mínimo: $1.00"
                     )
                 
                 observaciones = st.text_area("Observaciones (opcional)", height=80)

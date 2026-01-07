@@ -789,11 +789,15 @@ if auth.is_admin():
         "💼 CRM y Conciliación",
         "🔧 Mantenimiento",
         "🎭 Eventos",
-        "💳 Cuentas Ctes."
+        "💳 Cuentas Ctes.",
         "🛒 Pedidos y Compras"
     ]
 else:
-    tab_options = ["📝 Carga", "📊 Resumen del Día","🛒 Pedidos y Compras"]
+    tab_options = [
+        "📊 Carga",
+        "📅 Resumen del Día",
+        "🛒 Pedidos y Compras"
+    ]
 
 # Radio button horizontal que simula tabs
 active_tab = st.radio(

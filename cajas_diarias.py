@@ -700,8 +700,7 @@ else:
         disabled=False
     )
     # Validación: solo permitir fecha actual o día anterior
-    fecha_mov is not None and
-    if fecha_mov > fecha_laboral:
+    if fecha_mov is not None and fecha_mov > fecha_laboral:
         st.sidebar.warning("⚠️ Solo puedes trabajar con la fecha laboral actual o el día anterior")
         fecha_mov = fecha_laboral
 

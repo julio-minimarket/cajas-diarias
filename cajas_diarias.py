@@ -50,6 +50,7 @@ from supabase import create_client, Client
 import auth  # Importar módulo de autenticación
 import eventos
 import cuentas_corrientes  # Módulo de Cuentas Corrientes
+import pedidos_compras  # Módulo de Pedidos y Compras
 
 from datetime import date, datetime
 import pytz
@@ -789,9 +790,10 @@ if auth.is_admin():
         "🔧 Mantenimiento",
         "🎭 Eventos",
         "💳 Cuentas Ctes."
+        "🛒 Pedidos y Compras"
     ]
 else:
-    tab_options = ["📝 Carga", "📊 Resumen del Día"]
+    tab_options = ["📝 Carga", "📊 Resumen del Día","🛒 Pedidos y Compras"]
 
 # Radio button horizontal que simula tabs
 active_tab = st.radio(
@@ -2995,3 +2997,6 @@ elif active_tab == "🎭 Eventos" and auth.is_admin():
 # ==================== TAB 8: CUENTAS CORRIENTES ====================
 elif active_tab == "💳 Cuentas Ctes." and auth.is_admin():
         cuentas_corrientes.main()
+# ==================== TAB 9: PEDIDOS Y COMPRAS ====================
+elif active_tab == "🛒 Pedidos y Compras":
+    pedidos_compras.main()

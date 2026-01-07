@@ -204,6 +204,26 @@ def obtener_medios_pago(tipo):
         .execute()
     return result.data
 
+@st.cache_data(ttl=30)  # 30 segundos - actualización casi instantánea
+@manejar_error_supabase("Error al cargar puntos de venta")
+def obtener_puntos_venta(sucursal_id):
+    """
+    🆕 PUNTOS DE VENTA: Obtiene los puntos de venta de una sucursal específica.
+    
+    Args:
+        sucursal_id: ID de la sucursal
+    
+    Returns:
+        Lista de puntos de venta activos de la sucursal
+    """
+    result = supabase.table("puntos_venta")\
+        .select("id, nombre")\
+        .eq("sucursal_id", sucursal_id)\
+        .eq("activo", True)\
+        .order("id")\
+        .execute()
+    return result.data if result.data else []
+
 # ==================== NUEVAS FUNCIONES OPTIMIZADAS (FASE 1) ====================
 
 @st.cache_data(ttl=30)  # 30 segundos - actualización casi instantánea
@@ -211,6 +231,7 @@ def obtener_medios_pago(tipo):
 def obtener_movimientos_fecha(sucursal_id, fecha):
     """
     🆕 FASE 1: Obtiene movimientos de una sucursal para una fecha específica.
+    ✨ MODIFICADO: Incluye relación con puntos_venta
     Optimizado con caché de 30 segundos y joins eficientes.
     
     Args:
@@ -221,7 +242,7 @@ def obtener_movimientos_fecha(sucursal_id, fecha):
         Lista de movimientos con datos relacionados
     """
     result = supabase.table("movimientos_diarios")\
-        .select("*, categorias(nombre), medios_pago(nombre)")\
+        .select("*, categorias(nombre), medios_pago(nombre), puntos_venta(nombre)")\
         .eq("sucursal_id", sucursal_id)\
         .eq("fecha", str(fecha))\
         .execute()
@@ -835,9 +856,27 @@ if active_tab == "📝 Carga":
     def formulario_carga_movimiento(sucursal_id, sucursal_nombre, fecha_movimiento):
         """
         🆕 FASE 2 - ETAPA 2: Fragmento independiente para formulario de carga.
+        ✨ MODIFICADO: Soporte para puntos de venta (Belfast)
         Solo esta sección se recarga al guardar un movimiento.
         """
         tipo = st.radio("Tipo de movimiento", ["Venta", "Gasto", "Sueldos"], horizontal=True, key="tipo_mov_frag")
+        
+        # 🆕 NUEVO: Selector de punto de venta para Belfast (sucursal_id = 4)
+        punto_venta_seleccionado = None
+        if sucursal_id == 4:  # Belfast
+            puntos_venta_disponibles = obtener_puntos_venta(sucursal_id)
+            
+            if puntos_venta_disponibles:
+                st.info("🎯 **Belfast tiene múltiples puntos de venta**")
+                punto_venta_seleccionado = st.selectbox(
+                    "Selecciona el punto de venta",
+                    options=puntos_venta_disponibles,
+                    format_func=lambda x: x['nombre'],
+                    help="Selecciona la barra o punto de venta donde se realizó el movimiento",
+                    key="punto_venta_selector"
+                )
+            else:
+                st.warning("⚠️ No hay puntos de venta configurados para Belfast")
         
         with st.form("form_movimiento", clear_on_submit=True):
             col1, col2 = st.columns(2)
@@ -906,69 +945,89 @@ if active_tab == "📝 Carga":
             submitted = st.form_submit_button("💾 Guardar", width="stretch", type="primary")
             
             if submitted:
-                # VALIDAR FECHA antes de guardar
-                puede_cargar, mensaje_error = auth.puede_cargar_fecha(fecha_movimiento, auth.get_user_role())
-                
-                if not puede_cargar:
-                    st.error(mensaje_error)
+                # 🆕 VALIDACIÓN: Belfast requiere punto de venta
+                if sucursal_id == 4 and not punto_venta_seleccionado:
+                    st.error("⚠️ Debes seleccionar un punto de venta para Belfast")
                 else:
-                    usuario = st.session_state.user['nombre']
+                    # VALIDAR FECHA antes de guardar
+                    puede_cargar, mensaje_error = auth.puede_cargar_fecha(fecha_movimiento, auth.get_user_role())
                     
-                    # Validación según tipo
-                    if tipo == "Sueldos":
-                        if not concepto or monto <= 0 or not categoria_seleccionada or not medio_pago_seleccionado:
-                            st.error("⚠️ Completa todos los campos. El nombre del empleado y el monto son obligatorios.")
-                        else:
-                            try:
-                                data = {
-                                    "sucursal_id": sucursal_id,
-                                    "fecha": str(fecha_movimiento),
-                                    "tipo": "gasto",
-                                    "categoria_id": categoria_seleccionada['id'],
-                                    "concepto": concepto,
-                                    "monto": monto,
-                                    "medio_pago_id": medio_pago_seleccionado['id'],
-                                    "usuario": usuario
-                                }
-                                
-                                result = supabase.table("movimientos_diarios").insert(data).execute()
-                                
-                                if result.data:
-                                    st.toast(f"✅ Sueldo de {concepto} guardado: ${monto:,.2f}", icon="✅")
-                                    st.cache_data.clear()
-                                    st.rerun(scope="fragment")  # 🆕 Solo recarga ESTE fragmento
-                                else:
-                                    st.error("Error al guardar el movimiento")
-                                    
-                            except Exception as e:
-                                st.error(f"❌ Error: {str(e)}")
+                    if not puede_cargar:
+                        st.error(mensaje_error)
                     else:
-                        if monto <= 0 or not categoria_seleccionada or not medio_pago_seleccionado:
-                            st.error("⚠️ Completa todos los campos obligatorios")
-                        else:
-                            try:
-                                data = {
-                                    "sucursal_id": sucursal_id,
-                                    "fecha": str(fecha_movimiento),
-                                    "tipo": tipo.lower(),
-                                    "categoria_id": categoria_seleccionada['id'],
-                                    "concepto": concepto if concepto else None,
-                                    "monto": monto,
-                                    "medio_pago_id": medio_pago_seleccionado['id'],
-                                    "usuario": usuario
-                                }
-                                
-                                result = supabase.table("movimientos_diarios").insert(data).execute()
-                                
-                                if result.data:
-                                    st.toast(f"✅ {tipo} guardado: ${monto:,.2f}", icon="✅")
-                                    st.cache_data.clear()
-                                    st.rerun(scope="fragment")  # 🆕 Solo recarga ESTE fragmento
-                                else:
-                                    st.error("Error al guardar el movimiento")
+                        usuario = st.session_state.user['nombre']
+                        
+                        # Validación según tipo
+                        if tipo == "Sueldos":
+                            if not concepto or monto <= 0 or not categoria_seleccionada or not medio_pago_seleccionado:
+                                st.error("⚠️ Completa todos los campos. El nombre del empleado y el monto son obligatorios.")
+                            else:
+                                try:
+                                    data = {
+                                        "sucursal_id": sucursal_id,
+                                        "fecha": str(fecha_movimiento),
+                                        "tipo": "gasto",
+                                        "categoria_id": categoria_seleccionada['id'],
+                                        "concepto": concepto,
+                                        "monto": monto,
+                                        "medio_pago_id": medio_pago_seleccionado['id'],
+                                        "usuario": usuario
+                                    }
                                     
-                            except Exception as e:
-                                st.error(f"❌ Error: {str(e)}")
+                                    # 🆕 AGREGAR punto_venta_id si aplica
+                                    if punto_venta_seleccionado:
+                                        data["punto_venta_id"] = punto_venta_seleccionado['id']
+                                    
+                                    result = supabase.table("movimientos_diarios").insert(data).execute()
+                                    
+                                    if result.data:
+                                        # 🆕 Mensaje con punto de venta si aplica
+                                        msg = f"✅ Sueldo de {concepto} guardado: ${monto:,.2f}"
+                                        if punto_venta_seleccionado:
+                                            msg += f" ({punto_venta_seleccionado['nombre']})"
+                                        st.toast(msg, icon="✅")
+                                        st.cache_data.clear()
+                                        st.rerun(scope="fragment")  # 🆕 Solo recarga ESTE fragmento
+                                    else:
+                                        st.error("Error al guardar el movimiento")
+                                        
+                                except Exception as e:
+                                    st.error(f"❌ Error: {str(e)}")
+                        else:
+                            if monto <= 0 or not categoria_seleccionada or not medio_pago_seleccionado:
+                                st.error("⚠️ Completa todos los campos obligatorios")
+                            else:
+                                try:
+                                    data = {
+                                        "sucursal_id": sucursal_id,
+                                        "fecha": str(fecha_movimiento),
+                                        "tipo": tipo.lower(),
+                                        "categoria_id": categoria_seleccionada['id'],
+                                        "concepto": concepto if concepto else None,
+                                        "monto": monto,
+                                        "medio_pago_id": medio_pago_seleccionado['id'],
+                                        "usuario": usuario
+                                    }
+                                    
+                                    # 🆕 AGREGAR punto_venta_id si aplica
+                                    if punto_venta_seleccionado:
+                                        data["punto_venta_id"] = punto_venta_seleccionado['id']
+                                    
+                                    result = supabase.table("movimientos_diarios").insert(data).execute()
+                                    
+                                    if result.data:
+                                        # 🆕 Mensaje con punto de venta si aplica
+                                        msg = f"✅ {tipo} guardado: ${monto:,.2f}"
+                                        if punto_venta_seleccionado:
+                                            msg += f" ({punto_venta_seleccionado['nombre']})"
+                                        st.toast(msg, icon="✅")
+                                        st.cache_data.clear()
+                                        st.rerun(scope="fragment")  # 🆕 Solo recarga ESTE fragmento
+                                    else:
+                                        st.error("Error al guardar el movimiento")
+                                        
+                                except Exception as e:
+                                    st.error(f"❌ Error: {str(e)}")
     
     # Llamar al fragmento con los datos necesarios
     formulario_carga_movimiento(
@@ -1139,13 +1198,19 @@ elif active_tab == "📊 Resumen del Día":
                 
                 if len(df_ventas) > 0:
                     st.markdown("#### 💰 VENTAS")
-                    # Las columnas categoria_nombre y medio_pago_nombre ya vienen en el DataFrame
-                    df_ventas_display = df_ventas[['categoria_nombre', 'concepto', 'monto', 'medio_pago_nombre', 'usuario']].copy()
-                    df_ventas_display['concepto'] = df_ventas_display['concepto'].fillna('Sin detalle')
+                    # 🆕 Agregar columna punto_venta si existe
+                    if 'puntos_venta' in df_ventas.columns:
+                        df_ventas['punto_venta_nombre'] = df_ventas['puntos_venta'].apply(lambda x: x['nombre'] if x else '')
+                        df_ventas_display = df_ventas[['categoria_nombre', 'punto_venta_nombre', 'concepto', 'monto', 'medio_pago_nombre', 'usuario']].copy()
+                        df_ventas_display.columns = ['Categoría', 'Punto Venta', 'Concepto', 'Monto', 'Medio Pago', 'Usuario']
+                    else:
+                        df_ventas_display = df_ventas[['categoria_nombre', 'concepto', 'monto', 'medio_pago_nombre', 'usuario']].copy()
+                        df_ventas_display.columns = ['Categoría', 'Concepto', 'Monto', 'Medio Pago', 'Usuario']
                     
-                    montos_ventas = df_ventas_display['monto'].copy()
-                    df_ventas_display['monto'] = df_ventas_display['monto'].apply(lambda x: f"${x:,.2f}")
-                    df_ventas_display.columns = ['Categoría', 'Concepto', 'Monto', 'Medio Pago', 'Usuario']
+                    df_ventas_display['Concepto'] = df_ventas_display['Concepto'].fillna('Sin detalle')
+                    
+                    montos_ventas = df_ventas['monto'].copy()
+                    df_ventas_display['Monto'] = df_ventas['monto'].apply(lambda x: f"${x:,.2f}")
                     
                     # 🚀 FASE 3 - PARTE 2: Paginación en ventas
                     df_ventas_pag = paginar_dataframe(df_ventas_display, page_size=50, key_prefix="detalle_ventas")
@@ -1155,13 +1220,19 @@ elif active_tab == "📊 Resumen del Día":
                 
                 if len(df_gastos) > 0:
                     st.markdown("#### 💸 GASTOS")
-                    # Las columnas categoria_nombre y medio_pago_nombre ya vienen en el DataFrame
-                    df_gastos_display = df_gastos[['categoria_nombre', 'concepto', 'monto', 'medio_pago_nombre', 'usuario']].copy()
-                    df_gastos_display['concepto'] = df_gastos_display['concepto'].fillna('Sin detalle')
+                    # 🆕 Agregar columna punto_venta si existe
+                    if 'puntos_venta' in df_gastos.columns:
+                        df_gastos['punto_venta_nombre'] = df_gastos['puntos_venta'].apply(lambda x: x['nombre'] if x else '')
+                        df_gastos_display = df_gastos[['categoria_nombre', 'punto_venta_nombre', 'concepto', 'monto', 'medio_pago_nombre', 'usuario']].copy()
+                        df_gastos_display.columns = ['Categoría', 'Punto Venta', 'Concepto', 'Monto', 'Medio Pago', 'Usuario']
+                    else:
+                        df_gastos_display = df_gastos[['categoria_nombre', 'concepto', 'monto', 'medio_pago_nombre', 'usuario']].copy()
+                        df_gastos_display.columns = ['Categoría', 'Concepto', 'Monto', 'Medio Pago', 'Usuario']
                     
-                    montos_gastos = df_gastos_display['monto'].copy()
-                    df_gastos_display['monto'] = df_gastos_display['monto'].apply(lambda x: f"${x:,.2f}")
-                    df_gastos_display.columns = ['Categoría', 'Concepto', 'Monto', 'Medio Pago', 'Usuario']
+                    df_gastos_display['Concepto'] = df_gastos_display['Concepto'].fillna('Sin detalle')
+                    
+                    montos_gastos = df_gastos['monto'].copy()
+                    df_gastos_display['Monto'] = df_gastos['monto'].apply(lambda x: f"${x:,.2f}")
                     
                     # 🚀 FASE 3 - PARTE 2: Paginación en gastos
                     df_gastos_pag = paginar_dataframe(df_gastos_display, page_size=50, key_prefix="detalle_gastos")
@@ -1301,7 +1372,7 @@ elif active_tab == "📈 Reportes" and auth.is_admin():
                         
                         # ==================== CONSULTA 1: VENTAS ====================
                         query_ventas = supabase.table("movimientos_diarios")\
-                            .select("*, sucursales(nombre), categorias(nombre), medios_pago(nombre)")\
+                            .select("*, sucursales(nombre), categorias(nombre), medios_pago(nombre), puntos_venta(nombre)")\
                             .eq("tipo", "venta")\
                             .gte("fecha", str(fecha_desde))\
                             .lte("fecha", str(fecha_hasta))
@@ -1316,7 +1387,7 @@ elif active_tab == "📈 Reportes" and auth.is_admin():
                         
                         # ==================== CONSULTA 2: GASTOS ====================
                         query_gastos = supabase.table("movimientos_diarios")\
-                            .select("*, sucursales(nombre), categorias(nombre), medios_pago(nombre)")\
+                            .select("*, sucursales(nombre), categorias(nombre), medios_pago(nombre), puntos_venta(nombre)")\
                             .eq("tipo", "gasto")\
                             .gte("fecha", str(fecha_desde))\
                             .lte("fecha", str(fecha_hasta))
@@ -1344,17 +1415,29 @@ elif active_tab == "📈 Reportes" and auth.is_admin():
                             df['categoria_nombre'] = df['categorias'].apply(lambda x: x['nombre'] if x else 'Sin categoría')
                             df['medio_pago_nombre'] = df['medios_pago'].apply(lambda x: x['nombre'] if x else 'Sin medio')
                             
+                            # 🆕 Procesar puntos de venta
+                            if 'puntos_venta' in df.columns:
+                                df['punto_venta_nombre'] = df['puntos_venta'].apply(lambda x: x['nombre'] if x else '')
+                            
                             # Extraer nombres en df_ventas
                             if len(df_ventas) > 0:
                                 df_ventas['sucursal_nombre'] = df_ventas['sucursales'].apply(lambda x: x['nombre'] if x else 'N/A')
                                 df_ventas['categoria_nombre'] = df_ventas['categorias'].apply(lambda x: x['nombre'] if x else 'Sin categoría')
                                 df_ventas['medio_pago_nombre'] = df_ventas['medios_pago'].apply(lambda x: x['nombre'] if x else 'Sin medio')
+                                
+                                # 🆕 Procesar puntos de venta en df_ventas
+                                if 'puntos_venta' in df_ventas.columns:
+                                    df_ventas['punto_venta_nombre'] = df_ventas['puntos_venta'].apply(lambda x: x['nombre'] if x else '')
                             
                             # Extraer nombres en df_gastos
                             if len(df_gastos) > 0:
                                 df_gastos['sucursal_nombre'] = df_gastos['sucursales'].apply(lambda x: x['nombre'] if x else 'N/A')
                                 df_gastos['categoria_nombre'] = df_gastos['categorias'].apply(lambda x: x['nombre'] if x else 'Sin categoría')
                                 df_gastos['medio_pago_nombre'] = df_gastos['medios_pago'].apply(lambda x: x['nombre'] if x else 'Sin medio')
+                                
+                                # 🆕 Procesar puntos de venta en df_gastos
+                                if 'puntos_venta' in df_gastos.columns:
+                                    df_gastos['punto_venta_nombre'] = df_gastos['puntos_venta'].apply(lambda x: x['nombre'] if x else '')
                             
                             # Calcular totales
                             ventas_total = df_ventas['monto'].sum() if len(df_ventas) > 0 else 0.0
@@ -1477,6 +1560,47 @@ elif active_tab == "📈 Reportes" and auth.is_admin():
                                 
                                 st.dataframe(resumen_display, width="stretch")
                                 
+                                # 🆕 RESUMEN ESPECIAL PARA BELFAST CON PUNTOS DE VENTA
+                                df_belfast = df[df['sucursal_nombre'] == 'Belfast']
+                                if len(df_belfast) > 0 and 'punto_venta_nombre' in df_belfast.columns:
+                                    # Filtrar solo registros con punto de venta definido
+                                    df_belfast_con_pv = df_belfast[df_belfast['punto_venta_nombre'] != '']
+                                    
+                                    if len(df_belfast_con_pv) > 0:
+                                        st.markdown("#### 🎯 Detalle de Belfast por Punto de Venta")
+                                        
+                                        # Resumen por punto de venta (solo ventas)
+                                        df_belfast_ventas = df_belfast_con_pv[df_belfast_con_pv['tipo'] == 'venta']
+                                        
+                                        if len(df_belfast_ventas) > 0:
+                                            resumen_belfast = df_belfast_ventas.groupby('punto_venta_nombre')['monto'].agg([
+                                                ('Total Ventas', 'sum'),
+                                                ('Cantidad', 'count')
+                                            ]).reset_index()
+                                            
+                                            resumen_belfast.columns = ['Punto de Venta', 'Total Ventas', 'Cantidad Movimientos']
+                                            
+                                            # Calcular total Belfast
+                                            total_belfast = resumen_belfast['Total Ventas'].sum()
+                                            cantidad_total = resumen_belfast['Cantidad Movimientos'].sum()
+                                            
+                                            # Agregar porcentaje
+                                            resumen_belfast['% del Total'] = (resumen_belfast['Total Ventas'] / total_belfast * 100).round(2)
+                                            
+                                            # Formatear montos
+                                            resumen_belfast_display = resumen_belfast.copy()
+                                            resumen_belfast_display['Total Ventas'] = resumen_belfast_display['Total Ventas'].apply(lambda x: f"${x:,.2f}")
+                                            resumen_belfast_display['% del Total'] = resumen_belfast_display['% del Total'].apply(lambda x: f"{x:.1f}%")
+                                            
+                                            # Mostrar tabla
+                                            st.dataframe(resumen_belfast_display, width="stretch", hide_index=True)
+                                            
+                                            # Mostrar total
+                                            col_t1, col_t2, col_t3 = st.columns(3)
+                                            col_t1.metric("💰 Total Belfast", f"${total_belfast:,.2f}")
+                                            col_t2.metric("🎫 Movimientos", f"{cantidad_total}")
+                                            col_t3.metric("💵 Promedio por Movimiento", f"${(total_belfast/cantidad_total):,.2f}")
+                                
                                 st.markdown("---")
                             
                             # Resumen por categoría
@@ -1501,15 +1625,27 @@ elif active_tab == "📈 Reportes" and auth.is_admin():
                             # Detalle completo
                             st.markdown("### 📋 Detalle de Movimientos")
                             
-                            df_detalle = df[['fecha', 'sucursal_nombre', 'tipo', 'categoria_nombre', 'concepto', 'monto', 'medio_pago_nombre']].copy()
-                            df_detalle['concepto'] = df_detalle['concepto'].fillna('Sin detalle')
-                            df_detalle['monto'] = df_detalle['monto'].apply(lambda x: f"${x:,.2f}")
-                            df_detalle.columns = ['Fecha', 'Sucursal', 'Tipo', 'Categoría', 'Concepto', 'Monto', 'Medio Pago']
+                            # 🆕 Incluir punto de venta si existe
+                            if 'punto_venta_nombre' in df.columns:
+                                df_detalle = df[['fecha', 'sucursal_nombre', 'tipo', 'categoria_nombre', 'punto_venta_nombre', 'concepto', 'monto', 'medio_pago_nombre']].copy()
+                                df_detalle['concepto'] = df_detalle['concepto'].fillna('Sin detalle')
+                                df_detalle['monto'] = df_detalle['monto'].apply(lambda x: f"${x:,.2f}")
+                                df_detalle.columns = ['Fecha', 'Sucursal', 'Tipo', 'Categoría', 'Punto Venta', 'Concepto', 'Monto', 'Medio Pago']
+                            else:
+                                df_detalle = df[['fecha', 'sucursal_nombre', 'tipo', 'categoria_nombre', 'concepto', 'monto', 'medio_pago_nombre']].copy()
+                                df_detalle['concepto'] = df_detalle['concepto'].fillna('Sin detalle')
+                                df_detalle['monto'] = df_detalle['monto'].apply(lambda x: f"${x:,.2f}")
+                                df_detalle.columns = ['Fecha', 'Sucursal', 'Tipo', 'Categoría', 'Concepto', 'Monto', 'Medio Pago']
                             
                             st.dataframe(df_detalle, width="stretch", hide_index=True)
                             
                             # Botón para descargar CSV
-                            csv = df[['fecha', 'sucursal_nombre', 'tipo', 'categoria_nombre', 'concepto', 'monto', 'medio_pago_nombre']].to_csv(index=False)
+                            # 🆕 Incluir punto de venta en CSV si existe
+                            if 'punto_venta_nombre' in df.columns:
+                                csv = df[['fecha', 'sucursal_nombre', 'tipo', 'categoria_nombre', 'punto_venta_nombre', 'concepto', 'monto', 'medio_pago_nombre']].to_csv(index=False)
+                            else:
+                                csv = df[['fecha', 'sucursal_nombre', 'tipo', 'categoria_nombre', 'concepto', 'monto', 'medio_pago_nombre']].to_csv(index=False)
+                            
                             st.download_button(
                                 label="⬇️ Descargar CSV",
                                 data=csv,
@@ -1624,7 +1760,7 @@ elif active_tab == "📈 Reportes" and auth.is_admin():
                         
                         # Construir consulta con filtros
                         query = supabase.table("movimientos_diarios")\
-                            .select("*, sucursales(nombre), categorias(nombre), medios_pago(nombre)")\
+                            .select("*, sucursales(nombre), categorias(nombre), medios_pago(nombre), puntos_venta(nombre)")\
                             .eq("tipo", "gasto")\
                             .gte("fecha", str(fecha_desde_gastos))\
                             .lte("fecha", str(fecha_hasta_gastos))
@@ -1647,6 +1783,10 @@ elif active_tab == "📈 Reportes" and auth.is_admin():
                             df_gastos['sucursal_nombre'] = df_gastos['sucursales'].apply(lambda x: x['nombre'] if x else 'N/A')
                             df_gastos['categoria_nombre'] = df_gastos['categorias'].apply(lambda x: x['nombre'] if x else 'Sin categoría')
                             df_gastos['medio_pago_nombre'] = df_gastos['medios_pago'].apply(lambda x: x['nombre'] if x else 'Sin medio')
+                            
+                            # 🆕 Procesar puntos de venta
+                            if 'puntos_venta' in df_gastos.columns:
+                                df_gastos['punto_venta_nombre'] = df_gastos['puntos_venta'].apply(lambda x: x['nombre'] if x else '')
                             
                             st.markdown(f"#### 📊 Gastos del {fecha_desde_gastos.strftime('%d/%m/%Y')} al {fecha_hasta_gastos.strftime('%d/%m/%Y')}")
                             

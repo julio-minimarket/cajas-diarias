@@ -1,7 +1,6 @@
 # cajas_diarias.py - VERSIÓN 7.0 - FASE 3 OPTIMIZADA (SIN PAGINACIÓN EN REPORTES)
 #
-# 🚀 MEJORAS FASE 1 - PERFORMANCE INMEDIATAS (IMPLEMENTADO):
-# ✅ 1. Decorador de manejo robusto de errores
+# 🚀 MEJORAS FASE 1 - PERFORMANCE INMEDIATAS (IMPLEMENTADO): (Julio Becker)
 # ✅ 2. Funciones cacheadas adicionales
 # ✅ 3. Optimización de consultas SQL
 # ✅ 4. Gestión de estado con session_state

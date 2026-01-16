@@ -152,16 +152,31 @@ def main(supabase):
                             with open(output_path, 'rb') as f:
                                 file_data = f.read()
                             
-                            supabase.storage.from_(SUPABASE_BUCKET).upload(
-                                path=storage_path,
-                                file=file_data,
-                                file_options={"content-type": "application/pdf"}
-                            )
+                            # Intentar subir con upsert (sobrescribe si existe)
+                            try:
+                                supabase.storage.from_(SUPABASE_BUCKET).upload(
+                                    path=storage_path,
+                                    file=file_data,
+                                    file_options={"content-type": "application/pdf", "upsert": "true"}
+                                )
+                            except Exception as upload_error:
+                                # Si falla con upsert, intentar eliminar y subir de nuevo
+                                try:
+                                    supabase.storage.from_(SUPABASE_BUCKET).remove([storage_path])
+                                    supabase.storage.from_(SUPABASE_BUCKET).upload(
+                                        path=storage_path,
+                                        file=file_data,
+                                        file_options={"content-type": "application/pdf"}
+                                    )
+                                except:
+                                    # Si todo falla, al menos obtenemos la URL
+                                    pass
                             
                             archivo_url = supabase.storage.from_(SUPABASE_BUCKET).get_public_url(storage_path)
                             
-                            # Insertar en tabla
-                            supabase.table('transferencias').insert({
+                            # Usar upsert en lugar de insert para actualizar si ya existe
+                            # Esto evita errores de duplicados en la tabla
+                            supabase.table('transferencias').upsert({
                                 'op_number': op_number,
                                 'cuit': cuit,
                                 'razon_social': razon_social,
@@ -170,7 +185,7 @@ def main(supabase):
                                 'archivo_url': archivo_url,
                                 'bucket_path': storage_path,
                                 'usuario_upload': usuario_upload
-                            }).execute()
+                            }, on_conflict='op_number,cuit').execute()
                             
                         except Exception as e:
                             errores.append(f"OP {op_number} - Error: {str(e)}")

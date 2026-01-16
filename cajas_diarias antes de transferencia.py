@@ -49,7 +49,6 @@ from supabase import create_client, Client
 import auth  # Importar módulo de autenticación
 import eventos
 import cuentas_corrientes  # Módulo de Cuentas Corrientes
-import transferencias  # Módulo de Transferencias Bancarias
 
 from datetime import date, datetime
 import pytz
@@ -809,8 +808,7 @@ if auth.is_admin():
         "💼 CRM y Conciliación",
         "🔧 Mantenimiento",
         "🎭 Eventos",
-        "💳 Cuentas Ctes.",
-        "💸 Transferencias"
+        "💳 Cuentas Ctes."
     ]
 else:
     tab_options = ["📝 Carga", "📊 Resumen del Día"]
@@ -3197,6 +3195,3 @@ elif active_tab == "🎭 Eventos" and auth.is_admin():
 # ==================== TAB 8: CUENTAS CORRIENTES ====================
 elif active_tab == "💳 Cuentas Ctes." and auth.is_admin():
         cuentas_corrientes.main()
-# ==================== TAB 9: TRANSFERENCIAS ====================
-elif active_tab == "💸 Transferencias" and auth.is_admin():
-        transferencias.main()

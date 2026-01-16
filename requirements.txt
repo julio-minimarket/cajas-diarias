@@ -1,6 +1,8 @@
-streamlit>=1.28.0
-supabase>=2.0.0
-pandas>=2.0.0
-python-dotenv>=1.0.0
+streamlit
+pandas
+python-dotenv
+supabase
 pytz
+PyMuPDF
+requests
 openpyxl

@@ -5,23 +5,39 @@ Integrado al Sistema de Cajas Diarias
 
 import streamlit as st
 import os
-import re
-import fitz  # PyMuPDF
-from openpyxl import Workbook
-import tempfile
-import zipfile
-from io import BytesIO
 from datetime import datetime, timedelta
 import pandas as pd
-import requests
 
 SUPABASE_BUCKET = "transferencias"
 
-def main():
-    """Función principal del módulo de transferencias"""
+def main(supabase):
+    """
+    Función principal del módulo de transferencias
     
-    # Obtener cliente de Supabase del módulo principal
-    from cajas_diarias import supabase
+    Args:
+        supabase: Cliente de Supabase (pasado desde cajas_diarias.py)
+    """
+    
+    # Imports condicionales (solo se cargan cuando se usa el módulo)
+    try:
+        import fitz  # PyMuPDF
+        import requests
+        from openpyxl import Workbook
+        import tempfile
+        import zipfile
+        from io import BytesIO
+        import re
+    except ImportError as e:
+        st.error(f"❌ Falta instalar dependencias: {str(e)}")
+        st.info("""
+        **Para usar este módulo, agrega a requirements.txt:**
+        ```
+        PyMuPDF
+        requests
+        openpyxl
+        ```
+        """)
+        return
     
     if not supabase:
         st.error("❌ No se pudo conectar a Supabase.")

@@ -3199,4 +3199,4 @@ elif active_tab == "💳 Cuentas Ctes." and auth.is_admin():
         cuentas_corrientes.main()
 # ==================== TAB 9: TRANSFERENCIAS ====================
 elif active_tab == "💸 Transferencias" and auth.is_admin():
-        transferencias.main()
+        transferencias.main(supabase)

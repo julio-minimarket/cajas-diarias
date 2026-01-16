@@ -321,7 +321,9 @@ def main(supabase):
                     if fecha_desde:
                         query = query.gte('fecha_upload', fecha_desde.isoformat())
                     if fecha_hasta:
-                        query = query.lte('fecha_upload', fecha_hasta.isoformat())
+                        # Agregar 23:59:59 para incluir todo el día
+                        fecha_hasta_completa = f"{fecha_hasta.isoformat()}T23:59:59"
+                        query = query.lte('fecha_upload', fecha_hasta_completa)
                     if buscar_op:
                         query = query.ilike('op_number', f'%{buscar_op}%')
                     if buscar_cuit:

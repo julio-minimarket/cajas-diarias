@@ -18,6 +18,80 @@ import calendar
 
 # ==================== FUNCIONES DE PROCESAMIENTO DE GASTOS ====================
 
+# ============================================================
+# MAPEO MANUAL: CSV → SUCURSALES
+# ============================================================
+
+# Mapeo hardcoded (usado si no hay tabla mapeo_sucursales_csv)
+MAPEO_CSV_HARDCODED = {
+    'Belfast S.A.': 4,
+    'Chicken Chill Minimarket S.A.': 8,
+    'Costumbres Argentinas-Minimarket S.A.': 10,
+    'Destileria Open 24 S.A.': 13,
+    'Friends S.A.S. Patagonia': 5,
+    'Liverpool Minimarket S.A.': 7,
+    'Minimarket S.A. ': 1,  # Con espacio al final
+    'Minimarket S.A.': 1,
+    'Open 24 Minimarket S.A.': 11,
+    'Pocillos S.A.S. 1885 ': 3,  # Con espacio al final
+    'Pocillos S.A.S. 1885': 3,
+    'Pocillos S.A.S.Napoles Rgl': 2,
+    'Rincon Chico S.A.S. Napoles Calafate': 6,
+    'Temple Minimarket S.A.': 9,
+    # NOTA: "Andes Food S.A." no mapeada - no existe sucursal
+}
+
+def obtener_mapeo_manual(supabase):
+    """
+    Obtiene mapeo manual desde tabla o hardcoded
+    
+    Prioridad:
+    1. Tabla mapeo_sucursales_csv en Supabase (si existe)
+    2. MAPEO_CSV_HARDCODED (fallback)
+    
+    Returns:
+        dict: {nombre_csv: sucursal_id}
+    """
+    mapeo = {}
+    
+    # Intentar obtener de la tabla
+    try:
+        result = supabase.table("mapeo_sucursales_csv")\
+            .select("nombre_csv, sucursal_id")\
+            .eq("activo", True)\
+            .execute()
+        
+        if result.data:
+            # Usar mapeo de la tabla
+            for row in result.data:
+                # Mapeo exacto
+                mapeo[row['nombre_csv']] = row['sucursal_id']
+                
+                # Mapeo normalizado
+                nombre_norm = row['nombre_csv'].upper().replace(' ', '').replace('.', '').replace(',', '')
+                mapeo[nombre_norm] = row['sucursal_id']
+            
+            return mapeo
+    except Exception as e:
+        # Tabla no existe o error al consultar
+        print(f"[INFO] No se pudo obtener mapeo de DB, usando hardcoded: {e}")
+    
+    # Usar mapeo hardcoded si no hay tabla o está vacía
+    if not mapeo:
+        mapeo = MAPEO_CSV_HARDCODED.copy()
+        
+        # Agregar versiones normalizadas
+        for nombre_csv, sucursal_id in MAPEO_CSV_HARDCODED.items():
+            nombre_norm = nombre_csv.upper().replace(' ', '').replace('.', '').replace(',', '')
+            mapeo[nombre_norm] = sucursal_id
+    
+    return mapeo
+
+
+# ============================================================
+# FUNCIONES DE MAPEO
+# ============================================================
+
 def convertir_importe(valor):
     """
     Convierte importes en diferentes formatos a float
@@ -172,39 +246,60 @@ def crear_mapeo_sucursales(supabase):
         return {}
 
 
-def obtener_sucursal_id_desde_nombre(nombre_empresa, mapeo_sucursales):
+def obtener_sucursal_id_desde_nombre(nombre_empresa, mapeo_manual, mapeo_automatico):
     """
-    Obtiene el sucursal_id a partir del nombre de la empresa
-    Intenta varias estrategias de matching
+    Obtiene el sucursal_id desde el nombre de la empresa del CSV
+    
+    Prioridades:
+    1. Mapeo manual EXACTO (desde tabla o hardcoded)
+    2. Mapeo manual NORMALIZADO
+    3. Mapeo automático (4 estrategias)
+    
+    Args:
+        nombre_empresa (str): Nombre de la empresa del CSV
+        mapeo_manual (dict): Mapeo manual {nombre: id}
+        mapeo_automatico (dict): Mapeo automático {nombre: id}
+    
+    Returns:
+        int or None: sucursal_id o None si no se encuentra
     """
     if not nombre_empresa or pd.isna(nombre_empresa):
         return None
     
     nombre_empresa = str(nombre_empresa).strip()
     
+    # PRIORIDAD 1: Mapeo manual EXACTO
+    if nombre_empresa in mapeo_manual:
+        return mapeo_manual[nombre_empresa]
+    
+    # PRIORIDAD 2: Mapeo manual NORMALIZADO
+    nombre_norm = nombre_empresa.upper().replace(' ', '').replace('.', '').replace(',', '')
+    if nombre_norm in mapeo_manual:
+        return mapeo_manual[nombre_norm]
+    
+    # PRIORIDAD 3: Mapeo automático
     # Estrategia 1: Coincidencia exacta
-    if nombre_empresa in mapeo_sucursales:
-        return mapeo_sucursales[nombre_empresa]
+    if nombre_empresa in mapeo_automatico:
+        return mapeo_automatico[nombre_empresa]
     
     # Estrategia 2: Coincidencia normalizada
-    nombre_norm = nombre_empresa.upper().replace(' ', '').replace('.', '').replace(',', '')
-    if nombre_norm in mapeo_sucursales:
-        return mapeo_sucursales[nombre_norm]
+    if nombre_norm in mapeo_automatico:
+        return mapeo_automatico[nombre_norm]
     
     # Estrategia 3: Por palabras clave
     palabras = nombre_empresa.upper().split()
     if len(palabras) > 0:
         # Primera palabra
-        if palabras[0] in mapeo_sucursales:
-            return mapeo_sucursales[palabras[0]]
+        if palabras[0] in mapeo_automatico:
+            return mapeo_automatico[palabras[0]]
         # Primeras dos palabras
         if len(palabras) > 1:
             clave = f"{palabras[0]} {palabras[1]}"
-            if clave in mapeo_sucursales:
-                return mapeo_sucursales[clave]
+            if clave in mapeo_automatico:
+                return mapeo_automatico[clave]
     
     # Estrategia 4: Búsqueda parcial (contiene)
-    for nombre_mapeado, suc_id in mapeo_sucursales.items():
+    for nombre_mapeado, suc_id in mapeo_automatico.items():
         if nombre_empresa.upper() in nombre_mapeado.upper():
             return suc_id
         if nombre_mapeado.upper() in nombre_empresa.upper():
@@ -213,16 +308,15 @@ def obtener_sucursal_id_desde_nombre(nombre_empresa, mapeo_sucursales):
     return None
 
 
-def guardar_gastos_en_db(supabase, df_gastos, usuario=None, mapeo_sucursales=None):
+def guardar_gastos_en_db(supabase, df_gastos, usuario=None):
     """
     Guarda los gastos procesados en la base de datos
     Mapea automáticamente nombres de empresas a sucursal_id
     IMPORTANTE: Usa la fecha de cada registro del CSV, no una fecha global
     
-    Parámetros:
-    -----------
-    mapeo_sucursales : dict, opcional
-        Diccionario de mapeo nombre -> id. Si no se provee, se crea automáticamente
+    Usa mapeo HÍBRIDO:
+    1. Mapeo manual (tabla mapeo_sucursales_csv o hardcoded)
+    2. Mapeo automático (tabla sucursales con estrategias)
     
     Retorna:
     --------
@@ -233,9 +327,9 @@ def guardar_gastos_en_db(supabase, df_gastos, usuario=None, mapeo_sucursales=Non
     sin_sucursal = []
     sin_fecha = []
     
-    # Crear mapeo si no se proporciona
-    if mapeo_sucursales is None:
-        mapeo_sucursales = crear_mapeo_sucursales(supabase)
+    # Obtener AMBOS mapeos
+    mapeo_manual = obtener_mapeo_manual(supabase)
+    mapeo_automatico = crear_mapeo_sucursales(supabase)
     
     try:
         for idx, row in df_gastos.iterrows():
@@ -243,15 +337,20 @@ def guardar_gastos_en_db(supabase, df_gastos, usuario=None, mapeo_sucursales=Non
                 # Obtener nombre de la empresa
                 nombre_empresa = row.get('Empresa', '')
                 
-                # Mapear a sucursal_id
-                sucursal_id = obtener_sucursal_id_desde_nombre(nombre_empresa, mapeo_sucursales)
+                # Mapear a sucursal_id usando mapeo híbrido
+                sucursal_id = obtener_sucursal_id_desde_nombre(
+                    nombre_empresa, 
+                    mapeo_manual, 
+                    mapeo_automatico
+                )
                 
                 if sucursal_id is None:
                     sin_sucursal.append({
                         'fila': idx + 1,
                         'empresa': nombre_empresa,
                         'fecha': row.get('Fecha', ''),
-                        'total': row.get('TOTAL_GASTO', 0)
+                        'total': row.get('TOTAL_GASTO', 0),
+                        'sugerencia': '💡 Verifica que la sucursal exista en Supabase'
                     })
                     continue
                 
@@ -596,17 +695,25 @@ def mostrar_tab_importacion(supabase, sucursales, mes_seleccionado, anio_selecci
     
     st.info("💡 **Importación Inteligente**: El sistema detecta automáticamente las sucursales Y las fechas de cada gasto desde el CSV. No necesitas seleccionar mes/año manualmente.")
     
-    # Crear mapeo de sucursales
-    mapeo_sucursales = crear_mapeo_sucursales(supabase)
+    # Crear AMBOS mapeos
+    mapeo_manual = obtener_mapeo_manual(supabase)
+    mapeo_automatico = crear_mapeo_sucursales(supabase)
     
-    if not mapeo_sucursales:
+    if not mapeo_automatico:
         st.error("❌ No se pudieron cargar las sucursales. Verifica la conexión a Supabase.")
         return
     
-    # Mostrar sucursales disponibles
-    with st.expander("🏪 Sucursales configuradas en el sistema"):
-        st.write("Las siguientes sucursales están disponibles para mapeo automático:")
-        for nombre, suc_id in mapeo_sucursales.items():
+    # Mostrar información de mapeo
+    with st.expander("🏪 Información de Mapeo"):
+        if mapeo_manual:
+            st.write("✅ **Mapeo Manual Activo** (prioridad alta)")
+            st.write(f"   - {len(set(mapeo_manual.values()))} empresas CSV → sucursales")
+        else:
+            st.write("⚠️ **Mapeo Manual No Configurado** (solo mapeo automático)")
+        
+        st.write("")
+        st.write("📋 **Sucursales disponibles:**")
+        for nombre, suc_id in mapeo_automatico.items():
             if ' ' in nombre or '.' in nombre:  # Mostrar solo nombres completos
                 st.write(f"- {nombre} (ID: {suc_id})")
     
@@ -665,12 +772,12 @@ def mostrar_tab_importacion(supabase, sucursales, mes_seleccionado, anio_selecci
             empresas_sin_mapear = []
             
             for empresa, cantidad in empresas_detectadas.items():
-                sucursal_id = obtener_sucursal_id_desde_nombre(empresa, mapeo_sucursales)
+                sucursal_id = obtener_sucursal_id_desde_nombre(empresa, mapeo_manual, mapeo_automatico)
                 total_empresa = df_gastos[df_gastos['Empresa'] == empresa]['TOTAL_GASTO'].sum()
                 
                 if sucursal_id:
                     # Encontrar nombre de sucursal
-                    nombre_sucursal = next((k for k, v in mapeo_sucursales.items() if v == sucursal_id and (' ' in k or '.' in k)), empresa)
+                    nombre_sucursal = next((k for k, v in mapeo_automatico.items() if v == sucursal_id and (' ' in k or '.' in k)), empresa)
                     empresas_mapeadas.append({
                         'CSV': empresa,
                         'Sucursal': nombre_sucursal,
@@ -735,7 +842,7 @@ def mostrar_tab_importacion(supabase, sucursales, mes_seleccionado, anio_selecci
             
             gastos_existentes_info = []
             for empresa_info in empresas_mapeadas:
-                sucursal_id = obtener_sucursal_id_desde_nombre(empresa_info['CSV'], mapeo_sucursales)
+                sucursal_id = obtener_sucursal_id_desde_nombre(empresa_info['CSV'], mapeo_manual, mapeo_automatico)
                 if sucursal_id:
                     for anio, mes in periodos_csv:
                         gastos_existentes = verificar_gastos_existentes(supabase, sucursal_id, mes, anio)
@@ -858,6 +965,7 @@ def mostrar_tab_analisis(supabase, sucursales, mes_seleccionado, anio_selecciona
     st.subheader("📊 Análisis del Período Actual")
     
     sucursal_id = sucursal_seleccionada['id'] if sucursal_seleccionada else None
+    sucursal_nombre = sucursal_seleccionada['nombre'] if sucursal_seleccionada else "Todas las sucursales"
     
     # Obtener datos de la DB
     with st.spinner("Cargando datos..."):
@@ -865,8 +973,75 @@ def mostrar_tab_analisis(supabase, sucursales, mes_seleccionado, anio_selecciona
         df_ingresos = obtener_ingresos_mensuales(supabase, mes_seleccionado, anio_seleccionado, sucursal_id)
     
     if df_gastos.empty:
-        st.warning("⚠️ No hay gastos registrados para este período. Ve a la pestaña 'Importar Gastos' para cargar datos.")
+        st.warning(f"⚠️ No hay gastos registrados para **{sucursal_nombre}** en **{mes_seleccionado}/{anio_seleccionado}**.")
+        st.info("💡 Ve a la pestaña 'Importar Gastos' para cargar datos.")
         return
+    
+    # Verificar si los gastos son de sucursales diferentes a la seleccionada
+    if sucursal_seleccionada:
+        sucursales_en_gastos = df_gastos['sucursal_id'].unique()
+        if sucursal_id not in sucursales_en_gastos:
+            st.warning(f"⚠️ Los gastos de este período pertenecen a otras sucursales.")
+            st.info(f"💡 Sucursales con gastos en {mes_seleccionado}/{anio_seleccionado}:")
+            
+            # Mostrar qué sucursales tienen gastos
+            for suc_id in sucursales_en_gastos:
+                suc = next((s for s in sucursales if s['id'] == suc_id), None)
+                if suc:
+                    cantidad = len(df_gastos[df_gastos['sucursal_id'] == suc_id])
+                    st.write(f"   - {suc['nombre']}: {cantidad} registros")
+            
+            st.info("💡 Selecciona una de estas sucursales en el selector de arriba para ver su análisis.")
+            return
+    
+    # Si no hay ingresos pero sí gastos, mostrar advertencia
+    if df_ingresos.empty and not df_gastos.empty:
+        st.warning(f"⚠️ **Atención**: Hay gastos registrados pero NO hay ingresos para **{sucursal_nombre}** en **{mes_seleccionado}/{anio_seleccionado}**.")
+        st.info("💡 Esto puede deberse a:")
+        st.write("   1. Los ingresos no se han registrado en ese período")
+        st.write("   2. Los ingresos están registrados con un nombre de sucursal diferente")
+        st.write("   3. Los ingresos están en la tabla 'movimientos_diarios' con un sucursal_id diferente")
+        
+        # Mostrar información de debug
+        with st.expander("🔍 Información de Debug"):
+            st.write(f"**Buscando ingresos para:**")
+            st.write(f"   - Sucursal ID: {sucursal_id}")
+            st.write(f"   - Sucursal nombre: {sucursal_nombre}")
+            st.write(f"   - Mes: {mes_seleccionado}")
+            st.write(f"   - Año: {anio_seleccionado}")
+            
+            st.write(f"**Gastos encontrados:**")
+            st.write(f"   - Total: {len(df_gastos)} registros")
+            st.write(f"   - Suma: ${df_gastos['total'].sum():,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'))
+            
+            # Buscar si hay ingresos con otros sucursal_id en ese período
+            st.write(f"**Verificando ingresos en movimientos_diarios...**")
+            try:
+                from datetime import date
+                import calendar
+                primer_dia = date(anio_seleccionado, mes_seleccionado, 1)
+                ultimo_dia = date(anio_seleccionado, mes_seleccionado, calendar.monthrange(anio_seleccionado, mes_seleccionado)[1])
+                
+                result_all = supabase.table("movimientos_diarios")\
+                    .select("sucursal_id, fecha, monto")\
+                    .gte("fecha", str(primer_dia))\
+                    .lte("fecha", str(ultimo_dia))\
+                    .eq("tipo", "ingreso")\
+                    .execute()
+                
+                if result_all.data:
+                    df_all = pd.DataFrame(result_all.data)
+                    sucursales_con_ingresos = df_all.groupby('sucursal_id')['monto'].sum()
+                    
+                    st.write(f"**Ingresos encontrados en el período (todas las sucursales):**")
+                    for suc_id, total in sucursales_con_ingresos.items():
+                        suc = next((s for s in sucursales if s['id'] == suc_id), None)
+                        suc_name = suc['nombre'] if suc else f"ID: {suc_id}"
+                        st.write(f"   - {suc_name}: ${total:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'))
+                else:
+                    st.write("   - No hay ingresos registrados en todo el mes")
+            except Exception as e:
+                st.error(f"Error verificando ingresos: {str(e)}")
     
     # Calcular totales
     total_ingresos = df_ingresos['monto'].sum() if not df_ingresos.empty else 0

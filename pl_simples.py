@@ -583,9 +583,9 @@ def obtener_evolucion_historica(supabase, sucursal_id, meses_atras=12):
         result_ingresos = supabase.table("movimientos_diarios")\
             .select("fecha, monto")\
             .eq("sucursal_id", sucursal_id)\
-            .eq("tipo", "venta")\  # ✅ CORREGIDO: era "ingreso"
+            .eq("tipo", "venta")\
             .gte("fecha", str(fecha_limite.date()))\
-            .execute()
+            .execute()  # ✅ CORREGIDO: tipo era "ingreso", ahora "venta"
         
         if result_ingresos.data:
             df_ingresos = pd.DataFrame(result_ingresos.data)
@@ -1069,8 +1069,8 @@ def mostrar_tab_analisis(supabase, sucursales, mes_seleccionado, anio_selecciona
                     .select("sucursal_id, fecha, monto")\
                     .gte("fecha", str(primer_dia))\
                     .lte("fecha", str(ultimo_dia))\
-                    .eq("tipo", "venta")\  # ✅ CORREGIDO: era "ingreso"
-                    .execute()
+                    .eq("tipo", "venta")\
+                    .execute()  # ✅ CORREGIDO: tipo era "ingreso", ahora "venta"
                 
                 if result_all.data:
                     df_all = pd.DataFrame(result_all.data)

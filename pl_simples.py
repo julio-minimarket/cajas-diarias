@@ -535,8 +535,8 @@ def obtener_ingresos_mensuales(supabase, mes, anio, sucursal_id=None):
         if sucursal_id is not None:
             query = query.eq("sucursal_id", sucursal_id)
         
-        # Filtrar solo ingresos
-        query = query.eq("tipo", "ingreso")
+        # Filtrar solo ventas (ingresos)
+        query = query.eq("tipo", "venta")  # ✅ CORREGIDO: era "ingreso"
         
         # Ejecutar query
         result = query.execute()
@@ -583,7 +583,7 @@ def obtener_evolucion_historica(supabase, sucursal_id, meses_atras=12):
         result_ingresos = supabase.table("movimientos_diarios")\
             .select("fecha, monto")\
             .eq("sucursal_id", sucursal_id)\
-            .eq("tipo", "ingreso")\
+            .eq("tipo", "venta")\  # ✅ CORREGIDO: era "ingreso"
             .gte("fecha", str(fecha_limite.date()))\
             .execute()
         
@@ -1069,7 +1069,7 @@ def mostrar_tab_analisis(supabase, sucursales, mes_seleccionado, anio_selecciona
                     .select("sucursal_id, fecha, monto")\
                     .gte("fecha", str(primer_dia))\
                     .lte("fecha", str(ultimo_dia))\
-                    .eq("tipo", "ingreso")\
+                    .eq("tipo", "venta")\  # ✅ CORREGIDO: era "ingreso"
                     .execute()
                 
                 if result_all.data:

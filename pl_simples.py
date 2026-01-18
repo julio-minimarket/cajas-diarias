@@ -44,6 +44,7 @@ def convertir_importe(valor):
 def procesar_archivo_gastos(archivo_csv):
     """
     Procesa un archivo CSV de gastos/facturas y retorna un DataFrame con los datos calculados
+    Maneja múltiples formatos de fecha
     """
     try:
         # Cargo el archivo
@@ -65,9 +66,19 @@ def procesar_archivo_gastos(archivo_csv):
             if col in df.columns:
                 df[col] = df[col].apply(convertir_importe)
         
-        # Convierto la fecha
+        # Convertir fechas - Priorizar Fecha C. (Contabilización) sobre Fecha E. (Emisión)
+        # Intentar primero con Fecha C.
+        if 'Fecha C.' in df.columns:
+            df['Fecha'] = pd.to_datetime(df['Fecha C.'], format='%d/%m/%Y', errors='coerce')
+        
+        # Si no hay Fecha C. o hay NaN, usar Fecha E.
         if 'Fecha E.' in df.columns:
-            df['Fecha'] = pd.to_datetime(df['Fecha E.'], format='%d/%m/%Y', errors='coerce')
+            if 'Fecha' not in df.columns:
+                df['Fecha'] = pd.to_datetime(df['Fecha E.'], format='%d/%m/%Y', errors='coerce')
+            else:
+                # Rellenar NaN de Fecha con Fecha E.
+                mask = df['Fecha'].isna()
+                df.loc[mask, 'Fecha'] = pd.to_datetime(df.loc[mask, 'Fecha E.'], format='%d/%m/%Y', errors='coerce')
         
         # Calculo NETO e IVA para cada fila
         df['NETO'] = df[columnas_neto].sum(axis=1)
@@ -202,10 +213,11 @@ def obtener_sucursal_id_desde_nombre(nombre_empresa, mapeo_sucursales):
     return None
 
 
-def guardar_gastos_en_db(supabase, df_gastos, mes, anio, usuario=None, mapeo_sucursales=None):
+def guardar_gastos_en_db(supabase, df_gastos, usuario=None, mapeo_sucursales=None):
     """
     Guarda los gastos procesados en la base de datos
     Mapea automáticamente nombres de empresas a sucursal_id
+    IMPORTANTE: Usa la fecha de cada registro del CSV, no una fecha global
     
     Parámetros:
     -----------
@@ -214,11 +226,12 @@ def guardar_gastos_en_db(supabase, df_gastos, mes, anio, usuario=None, mapeo_suc
     
     Retorna:
     --------
-    dict con 'exitosos': int, 'errores': list, 'sin_sucursal': list
+    dict con 'exitosos': int, 'errores': list, 'sin_sucursal': list, 'sin_fecha': list
     """
     exitosos = 0
     errores = []
     sin_sucursal = []
+    sin_fecha = []
     
     # Crear mapeo si no se proporciona
     if mapeo_sucursales is None:
@@ -242,6 +255,43 @@ def guardar_gastos_en_db(supabase, df_gastos, mes, anio, usuario=None, mapeo_suc
                     })
                     continue
                 
+                # IMPORTANTE: Extraer mes y año de la fecha del CSV
+                # Intentar primero con 'Fecha C.' (Fecha de Contabilización)
+                fecha_contable = None
+                if 'Fecha C.' in row and pd.notna(row['Fecha C.']):
+                    try:
+                        fecha_contable = pd.to_datetime(row['Fecha C.'], format='%d/%m/%Y', errors='coerce')
+                    except:
+                        pass
+                
+                # Si no hay 'Fecha C.', usar 'Fecha E.' (Fecha de Emisión)
+                if fecha_contable is None or pd.isna(fecha_contable):
+                    if 'Fecha E.' in row and pd.notna(row['Fecha E.']):
+                        try:
+                            fecha_contable = pd.to_datetime(row['Fecha E.'], format='%d/%m/%Y', errors='coerce')
+                        except:
+                            pass
+                
+                # Si no hay ninguna fecha válida, usar la fecha procesada 'Fecha'
+                if fecha_contable is None or pd.isna(fecha_contable):
+                    if 'Fecha' in row and pd.notna(row['Fecha']):
+                        fecha_contable = row['Fecha']
+                
+                # Verificar que tenemos una fecha válida
+                if fecha_contable is None or pd.isna(fecha_contable):
+                    sin_fecha.append({
+                        'fila': idx + 1,
+                        'empresa': nombre_empresa,
+                        'fecha_e': row.get('Fecha E.', ''),
+                        'fecha_c': row.get('Fecha C.', ''),
+                        'total': row.get('TOTAL_GASTO', 0)
+                    })
+                    continue
+                
+                # Extraer mes y año de la fecha
+                mes = fecha_contable.month
+                anio = fecha_contable.year
+                
                 # Función auxiliar para convertir valores de forma segura
                 def convertir_a_float_seguro(valor):
                     """Convierte un valor a float, reemplazando nan, inf, None con 0"""
@@ -260,9 +310,9 @@ def guardar_gastos_en_db(supabase, df_gastos, mes, anio, usuario=None, mapeo_suc
                 # Preparar datos para inserción con conversión segura
                 gasto_data = {
                     'sucursal_id': sucursal_id,
-                    'mes': mes,
-                    'anio': anio,
-                    'fecha': str(row['Fecha'].date()) if pd.notna(row['Fecha']) else None,
+                    'mes': mes,  # Extraído de la fecha del CSV
+                    'anio': anio,  # Extraído de la fecha del CSV
+                    'fecha': str(fecha_contable.date()),
                     'tipo_comprobante': str(row.get('Tipo Comprobante', '')) if pd.notna(row.get('Tipo Comprobante')) else '',
                     'numero_comprobante': str(row.get('Comprobante', '')) if pd.notna(row.get('Comprobante')) else '',
                     'proveedor': str(row.get('Proveedor', '')) if pd.notna(row.get('Proveedor')) else '',
@@ -296,14 +346,16 @@ def guardar_gastos_en_db(supabase, df_gastos, mes, anio, usuario=None, mapeo_suc
         return {
             'exitosos': exitosos,
             'errores': errores,
-            'sin_sucursal': sin_sucursal
+            'sin_sucursal': sin_sucursal,
+            'sin_fecha': sin_fecha
         }
         
     except Exception as e:
         return {
             'exitosos': exitosos,
             'errores': [f"Error general: {str(e)}"] + errores,
-            'sin_sucursal': sin_sucursal
+            'sin_sucursal': sin_sucursal,
+            'sin_fecha': sin_fecha
         }
 
 
@@ -538,10 +590,11 @@ def mostrar_tab_importacion(supabase, sucursales, mes_seleccionado, anio_selecci
     """
     Tab de importación de gastos desde CSV
     Soporta múltiples sucursales en un mismo CSV con mapeo automático
+    Las fechas se extraen automáticamente de cada registro del CSV
     """
     st.subheader("📁 Importar Gastos desde CSV")
     
-    st.info("💡 **Tip**: El CSV puede contener gastos de múltiples sucursales. El sistema las detectará automáticamente.")
+    st.info("💡 **Importación Inteligente**: El sistema detecta automáticamente las sucursales Y las fechas de cada gasto desde el CSV. No necesitas seleccionar mes/año manualmente.")
     
     # Crear mapeo de sucursales
     mapeo_sucursales = crear_mapeo_sucursales(supabase)
@@ -571,6 +624,30 @@ def mostrar_tab_importacion(supabase, sucursales, mes_seleccionado, anio_selecci
         
         if df_gastos is not None and len(df_gastos) > 0:
             st.success(f"✅ Archivo procesado: {len(df_gastos)} registros detectados")
+            
+            # Analizar períodos en el CSV
+            if 'Fecha' in df_gastos.columns and df_gastos['Fecha'].notna().any():
+                fechas_validas = df_gastos[df_gastos['Fecha'].notna()]['Fecha']
+                fecha_min = fechas_validas.min()
+                fecha_max = fechas_validas.max()
+                
+                periodos = df_gastos[df_gastos['Fecha'].notna()].copy()
+                periodos['periodo'] = periodos['Fecha'].dt.to_period('M')
+                periodos_unicos = periodos['periodo'].unique()
+                
+                st.info(f"📅 **Períodos detectados en el CSV**: {fecha_min.strftime('%d/%m/%Y')} hasta {fecha_max.strftime('%d/%m/%Y')} ({len(periodos_unicos)} mes(es))")
+                
+                # Mostrar resumen por período
+                with st.expander("📊 Ver distribución por período"):
+                    resumen_periodo = periodos.groupby('periodo').size().reset_index(name='registros')
+                    resumen_periodo['periodo_str'] = resumen_periodo['periodo'].astype(str)
+                    st.dataframe(
+                        resumen_periodo[['periodo_str', 'registros']].rename(columns={
+                            'periodo_str': 'Período',
+                            'registros': 'Cantidad de Registros'
+                        }),
+                        hide_index=True
+                    )
             
             # Analizar sucursales en el CSV
             st.markdown("---")
@@ -646,32 +723,45 @@ def mostrar_tab_importacion(supabase, sucursales, mes_seleccionado, anio_selecci
                     hide_index=True
                 )
             
-            # Verificar si ya existen gastos para alguna sucursal en este período
+            # Verificar si ya existen gastos para alguna sucursal en los períodos del CSV
             st.markdown("---")
             st.subheader("⚠️ Verificación de Duplicados")
             
-            gastos_existentes_por_sucursal = {}
+            # Obtener períodos únicos del CSV
+            periodos_csv = set()
+            if 'Fecha' in df_gastos.columns:
+                for fecha in df_gastos[df_gastos['Fecha'].notna()]['Fecha']:
+                    periodos_csv.add((fecha.year, fecha.month))
+            
+            gastos_existentes_info = []
             for empresa_info in empresas_mapeadas:
                 sucursal_id = obtener_sucursal_id_desde_nombre(empresa_info['CSV'], mapeo_sucursales)
                 if sucursal_id:
-                    gastos_existentes = verificar_gastos_existentes(supabase, sucursal_id, mes_seleccionado, anio_seleccionado)
-                    if gastos_existentes['existe']:
-                        gastos_existentes_por_sucursal[empresa_info['Sucursal']] = gastos_existentes
+                    for anio, mes in periodos_csv:
+                        gastos_existentes = verificar_gastos_existentes(supabase, sucursal_id, mes, anio)
+                        if gastos_existentes['existe']:
+                            gastos_existentes_info.append({
+                                'sucursal': empresa_info['Sucursal'],
+                                'periodo': f"{mes:02d}/{anio}",
+                                'cantidad': gastos_existentes['cantidad'],
+                                'total': gastos_existentes['total'],
+                                'sucursal_id': sucursal_id,
+                                'mes': mes,
+                                'anio': anio
+                            })
             
-            if gastos_existentes_por_sucursal:
-                st.warning("⚠️ **Ya existen gastos para algunas sucursales en este período:**")
-                for sucursal, info in gastos_existentes_por_sucursal.items():
-                    st.write(f"- **{sucursal}**: {info['cantidad']} registros (${info['total']:,.2f})".replace(',', 'X').replace('.', ',').replace('X', '.'))
+            if gastos_existentes_info:
+                st.warning("⚠️ **Ya existen gastos para algunos períodos:**")
+                for info in gastos_existentes_info:
+                    st.write(f"- **{info['sucursal']}** ({info['periodo']}): {info['cantidad']} registros (${info['total']:,.2f})".replace(',', 'X').replace('.', ',').replace('X', '.'))
                 
                 st.write("")
                 col1, col2 = st.columns(2)
                 with col1:
                     if st.button("🔄 Reemplazar TODOS los gastos existentes", type="secondary"):
                         with st.spinner("Eliminando gastos existentes..."):
-                            for empresa_info in empresas_mapeadas:
-                                sucursal_id = obtener_sucursal_id_desde_nombre(empresa_info['CSV'], mapeo_sucursales)
-                                if sucursal_id:
-                                    eliminar_gastos_periodo(supabase, sucursal_id, mes_seleccionado, anio_seleccionado)
+                            for info in gastos_existentes_info:
+                                eliminar_gastos_periodo(supabase, info['sucursal_id'], info['mes'], info['anio'])
                             st.success("✅ Gastos eliminados. Puedes importar nuevos datos.")
                             st.session_state['gastos_eliminados'] = True
                             st.rerun()
@@ -715,8 +805,6 @@ def mostrar_tab_importacion(supabase, sucursales, mes_seleccionado, anio_selecci
                         resultado = guardar_gastos_en_db(
                             supabase, 
                             df_gastos,
-                            mes_seleccionado, 
-                            anio_seleccionado,
                             usuario_actual,
                             mapeo_sucursales
                         )
@@ -736,10 +824,17 @@ def mostrar_tab_importacion(supabase, sucursales, mes_seleccionado, anio_selecci
                             
                             st.cache_data.clear()
                             
-                            st.info("💡 Los gastos fueron guardados. Ve a la pestaña 'Análisis del Período' o 'Evolución Histórica'.")
+                            st.info("💡 Los gastos fueron guardados con sus fechas originales del CSV. Ve a 'Análisis del Período' o 'Evolución Histórica'.")
+                        
+                        if resultado.get('sin_fecha'):
+                            st.warning(f"⚠️ {len(resultado['sin_fecha'])} registros sin fecha válida (no importados):")
+                            for item in resultado['sin_fecha'][:10]:
+                                st.write(f"  • Fila {item['fila']}: {item['empresa']} - Fecha E: {item.get('fecha_e')} - Fecha C: {item.get('fecha_c')}")
+                            if len(resultado['sin_fecha']) > 10:
+                                st.write(f"  ... y {len(resultado['sin_fecha'])-10} más")
                         
                         if resultado['sin_sucursal']:
-                            st.warning(f"⚠️ {len(resultado['sin_sucursal'])} registros no pudieron ser mapeados a ninguna sucursal:")
+                            st.warning(f"⚠️ {len(resultado['sin_sucursal'])} registros sin sucursal mapeada (no importados):")
                             for item in resultado['sin_sucursal'][:10]:
                                 st.write(f"  • Fila {item['fila']}: {item['empresa']} (${item['total']:,.2f})".replace(',', 'X').replace('.', ',').replace('X', '.'))
                             if len(resultado['sin_sucursal']) > 10:
@@ -879,49 +974,56 @@ def mostrar_tab_analisis(supabase, sucursales, mes_seleccionado, anio_selecciona
         st.markdown("---")
         st.subheader("📈 Visualizaciones")
         
-        tab1, tab2 = st.tabs(["Composición de Gastos", "Comparativa con Benchmarks"])
-        
-        with tab1:
+        # Verificar si plotly está disponible
+        try:
             import plotly.express as px
-            
-            fig = px.pie(
-                df_analisis,
-                values='gasto',
-                names='rubro',
-                title='Distribución de Gastos por Rubro'
-            )
-            st.plotly_chart(fig, use_container_width=True)
-        
-        with tab2:
             import plotly.graph_objects as go
+            plotly_disponible = True
+        except ImportError:
+            plotly_disponible = False
+            st.warning("⚠️ **Plotly no está instalado**. Los gráficos no están disponibles.")
+            st.info("💡 Para ver gráficos, instala plotly: `pip install plotly --break-system-packages`")
+        
+        if plotly_disponible:
+            tab1, tab2 = st.tabs(["Composición de Gastos", "Comparativa con Benchmarks"])
             
-            df_comp = df_analisis[df_analisis['benchmark'].notna()].copy()
-            
-            if not df_comp.empty:
-                fig = go.Figure()
-                
-                fig.add_trace(go.Bar(
-                    x=df_comp['rubro'],
-                    y=df_comp['porcentaje_real'],
-                    name='% Real',
-                    marker_color='lightblue'
-                ))
-                
-                fig.add_trace(go.Bar(
-                    x=df_comp['rubro'],
-                    y=df_comp['benchmark'].apply(lambda x: x['porcentaje_ideal']),
-                    name='% Ideal',
-                    marker_color='lightgreen'
-                ))
-                
-                fig.update_layout(
-                    title='Comparativa: Real vs. Ideal (% sobre Ingresos)',
-                    xaxis_title='Rubro',
-                    yaxis_title='Porcentaje',
-                    barmode='group'
+            with tab1:
+                fig = px.pie(
+                    df_analisis,
+                    values='gasto',
+                    names='rubro',
+                    title='Distribución de Gastos por Rubro'
                 )
-                
                 st.plotly_chart(fig, use_container_width=True)
+            
+            with tab2:
+                df_comp = df_analisis[df_analisis['benchmark'].notna()].copy()
+                
+                if not df_comp.empty:
+                    fig = go.Figure()
+                    
+                    fig.add_trace(go.Bar(
+                        x=df_comp['rubro'],
+                        y=df_comp['porcentaje_real'],
+                        name='% Real',
+                        marker_color='lightblue'
+                    ))
+                    
+                    fig.add_trace(go.Bar(
+                        x=df_comp['rubro'],
+                        y=df_comp['benchmark'].apply(lambda x: x['porcentaje_ideal']),
+                        name='% Ideal',
+                        marker_color='lightgreen'
+                    ))
+                    
+                    fig.update_layout(
+                        title='Comparativa: Real vs. Ideal (% sobre Ingresos)',
+                        xaxis_title='Rubro',
+                        yaxis_title='Porcentaje',
+                        barmode='group'
+                    )
+                    
+                    st.plotly_chart(fig, use_container_width=True)
         
         # Exportar
         st.markdown("---")
@@ -1016,62 +1118,70 @@ def mostrar_tab_evolucion(supabase, sucursales, sucursal_seleccionada):
     st.markdown("---")
     st.markdown("### 📈 Gráficos de Tendencia")
     
-    import plotly.graph_objects as go
+    # Verificar si plotly está disponible
+    try:
+        import plotly.graph_objects as go
+        plotly_disponible = True
+    except ImportError:
+        plotly_disponible = False
+        st.warning("⚠️ **Plotly no está instalado**. Los gráficos no están disponibles.")
+        st.info("💡 Para ver gráficos, instala plotly: `pip install plotly --break-system-packages`")
     
-    # Gráfico 1: Ingresos vs Gastos
-    fig1 = go.Figure()
-    
-    fig1.add_trace(go.Scatter(
-        x=df_evolucion['periodo'],
-        y=df_evolucion['total_ingresos'],
-        mode='lines+markers',
-        name='Ingresos',
-        line=dict(color='green', width=2),
-        marker=dict(size=8)
-    ))
-    
-    fig1.add_trace(go.Scatter(
-        x=df_evolucion['periodo'],
-        y=df_evolucion['total_gastos'],
-        mode='lines+markers',
-        name='Gastos',
-        line=dict(color='red', width=2),
-        marker=dict(size=8)
-    ))
-    
-    fig1.update_layout(
-        title='Evolución de Ingresos vs. Gastos',
-        xaxis_title='Período',
-        yaxis_title='Monto ($)',
-        hovermode='x unified'
-    )
-    
-    st.plotly_chart(fig1, use_container_width=True)
-    
-    # Gráfico 2: Margen
-    fig2 = go.Figure()
-    
-    # Color según margen
-    colors = ['green' if m >= 10 else 'orange' if m >= 5 else 'red' for m in df_evolucion['margen']]
-    
-    fig2.add_trace(go.Bar(
-        x=df_evolucion['periodo'],
-        y=df_evolucion['margen'],
-        name='Margen %',
-        marker_color=colors
-    ))
-    
-    # Línea de referencia en 10%
-    fig2.add_hline(y=10, line_dash="dash", line_color="gray", annotation_text="Meta: 10%")
-    
-    fig2.update_layout(
-        title='Evolución del Margen de Ganancia',
-        xaxis_title='Período',
-        yaxis_title='Margen (%)',
-        hovermode='x unified'
-    )
-    
-    st.plotly_chart(fig2, use_container_width=True)
+    if plotly_disponible:
+        # Gráfico 1: Ingresos vs Gastos
+        fig1 = go.Figure()
+        
+        fig1.add_trace(go.Scatter(
+            x=df_evolucion['periodo'],
+            y=df_evolucion['total_ingresos'],
+            mode='lines+markers',
+            name='Ingresos',
+            line=dict(color='green', width=2),
+            marker=dict(size=8)
+        ))
+        
+        fig1.add_trace(go.Scatter(
+            x=df_evolucion['periodo'],
+            y=df_evolucion['total_gastos'],
+            mode='lines+markers',
+            name='Gastos',
+            line=dict(color='red', width=2),
+            marker=dict(size=8)
+        ))
+        
+        fig1.update_layout(
+            title='Evolución de Ingresos vs. Gastos',
+            xaxis_title='Período',
+            yaxis_title='Monto ($)',
+            hovermode='x unified'
+        )
+        
+        st.plotly_chart(fig1, use_container_width=True)
+        
+        # Gráfico 2: Margen
+        fig2 = go.Figure()
+        
+        # Color según margen
+        colors = ['green' if m >= 10 else 'orange' if m >= 5 else 'red' for m in df_evolucion['margen']]
+        
+        fig2.add_trace(go.Bar(
+            x=df_evolucion['periodo'],
+            y=df_evolucion['margen'],
+            name='Margen %',
+            marker_color=colors
+        ))
+        
+        # Línea de referencia en 10%
+        fig2.add_hline(y=10, line_dash="dash", line_color="gray", annotation_text="Meta: 10%")
+        
+        fig2.update_layout(
+            title='Evolución del Margen de Ganancia',
+            xaxis_title='Período',
+            yaxis_title='Margen (%)',
+            hovermode='x unified'
+        )
+        
+        st.plotly_chart(fig2, use_container_width=True)
     
     # Estadísticas
     st.markdown("---")
@@ -1113,10 +1223,10 @@ def mostrar_tab_evolucion(supabase, sucursales, sucursal_seleccionada):
 
 def main(supabase):
     """
-    Función principal del módulo P&L Simples v2.0
+    Función principal del módulo P&L Simples v2.2
     """
     st.header("📊 P&L Simples - Informe Mensual de Resultados")
-    st.caption("v2.0 - Con persistencia y evolución histórica")
+    st.caption("v2.2 - Con persistencia, evolución histórica y mapeo automático de fechas")
     st.markdown("---")
     
     # Configuración
@@ -1130,18 +1240,20 @@ def main(supabase):
         }
         mes_actual = datetime.now().month
         mes_seleccionado = st.selectbox(
-            "📅 Mes",
+            "📅 Mes (para análisis)",
             options=list(meses.keys()),
             format_func=lambda x: meses[x],
-            index=mes_actual - 1
+            index=mes_actual - 1,
+            help="Selecciona el mes que quieres analizar. No afecta la importación (las fechas vienen del CSV)."
         )
     
     with col2:
         anio_actual = datetime.now().year
         anio_seleccionado = st.selectbox(
-            "📅 Año",
+            "📅 Año (para análisis)",
             options=range(anio_actual - 2, anio_actual + 1),
-            index=2
+            index=2,
+            help="Selecciona el año que quieres analizar. No afecta la importación (las fechas vienen del CSV)."
         )
     
     with col3:

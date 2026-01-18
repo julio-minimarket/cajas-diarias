@@ -320,12 +320,13 @@ def guardar_gastos_en_db(supabase, df_gastos, usuario=None):
     
     Retorna:
     --------
-    dict con 'exitosos': int, 'errores': list, 'sin_sucursal': list, 'sin_fecha': list
+    dict con 'exitosos': int, 'errores': list, 'sin_sucursal': list, 'sin_fecha': list, 'duplicados': list
     """
     exitosos = 0
     errores = []
     sin_sucursal = []
     sin_fecha = []
+    duplicados = []  # Registros que ya existen en DB
     
     # Obtener AMBOS mapeos
     mapeo_manual = obtener_mapeo_manual(supabase)
@@ -440,13 +441,27 @@ def guardar_gastos_en_db(supabase, df_gastos, usuario=None):
                 exitosos += 1
                 
             except Exception as e:
-                errores.append(f"Fila {idx + 1}: {str(e)}")
+                error_str = str(e)
+                # Detectar duplicados
+                if 'duplicate key' in error_str.lower() and 'unique_gasto_registro' in error_str.lower():
+                    duplicados.append({
+                        'fila': idx + 1,
+                        'sucursal_id': sucursal_id,
+                        'empresa': nombre_empresa,
+                        'proveedor': row.get('Proveedor', ''),
+                        'total': row.get('TOTAL_GASTO', 0),
+                        'fecha': str(fecha_contable.date()) if fecha_contable else ''
+                    })
+                else:
+                    # Error real (no duplicado)
+                    errores.append(f"Fila {idx + 1}: {error_str}")
         
         return {
             'exitosos': exitosos,
             'errores': errores,
             'sin_sucursal': sin_sucursal,
-            'sin_fecha': sin_fecha
+            'sin_fecha': sin_fecha,
+            'duplicados': duplicados
         }
         
     except Exception as e:
@@ -912,8 +927,7 @@ def mostrar_tab_importacion(supabase, sucursales, mes_seleccionado, anio_selecci
                         resultado = guardar_gastos_en_db(
                             supabase, 
                             df_gastos,
-                            usuario_actual,
-                            mapeo_sucursales
+                            usuario_actual
                         )
                         
                         if resultado['exitosos'] > 0:
@@ -932,6 +946,35 @@ def mostrar_tab_importacion(supabase, sucursales, mes_seleccionado, anio_selecci
                             st.cache_data.clear()
                             
                             st.info("💡 Los gastos fueron guardados con sus fechas originales del CSV. Ve a 'Análisis del Período' o 'Evolución Histórica'.")
+                        
+                        # Mostrar duplicados agrupados por sucursal
+                        if resultado.get('duplicados'):
+                            # Agrupar duplicados por sucursal
+                            duplicados_por_sucursal = {}
+                            for dup in resultado['duplicados']:
+                                suc_id = dup['sucursal_id']
+                                if suc_id not in duplicados_por_sucursal:
+                                    # Buscar nombre de sucursal
+                                    nombre_suc = next(
+                                        (k for k, v in mapeo_automatico.items() if v == suc_id and (' ' in k or '.' in k)), 
+                                        dup['empresa']
+                                    )
+                                    duplicados_por_sucursal[suc_id] = {
+                                        'nombre': nombre_suc,
+                                        'cantidad': 0
+                                    }
+                                duplicados_por_sucursal[suc_id]['cantidad'] += 1
+                            
+                            # Mostrar mensaje agrupado
+                            st.warning(f"⚠️ **{len(resultado['duplicados'])} registros no se importaron porque ya existen en la BD:**")
+                            for suc_id, info in duplicados_por_sucursal.items():
+                                st.write(f"  • **{info['nombre']}**: {info['cantidad']} registro(s)")
+                            
+                            with st.expander("🔍 Ver detalle de duplicados"):
+                                for dup in resultado['duplicados'][:20]:
+                                    st.write(f"  - Fila {dup['fila']}: {dup['proveedor']} (${dup['total']:,.2f}) - {dup['fecha']}")
+                                if len(resultado['duplicados']) > 20:
+                                    st.write(f"  ... y {len(resultado['duplicados'])-20} más")
                         
                         if resultado.get('sin_fecha'):
                             st.warning(f"⚠️ {len(resultado['sin_fecha'])} registros sin fecha válida (no importados):")

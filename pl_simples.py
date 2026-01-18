@@ -242,32 +242,47 @@ def guardar_gastos_en_db(supabase, df_gastos, mes, anio, usuario=None, mapeo_suc
                     })
                     continue
                 
-                # Preparar datos para inserción
+                # Función auxiliar para convertir valores de forma segura
+                def convertir_a_float_seguro(valor):
+                    """Convierte un valor a float, reemplazando nan, inf, None con 0"""
+                    try:
+                        if pd.isna(valor) or valor is None:
+                            return 0.0
+                        val_float = float(valor)
+                        # Verificar si es nan, inf o -inf
+                        if not pd.isna(val_float) and val_float != float('inf') and val_float != float('-inf'):
+                            return val_float
+                        else:
+                            return 0.0
+                    except (ValueError, TypeError):
+                        return 0.0
+                
+                # Preparar datos para inserción con conversión segura
                 gasto_data = {
                     'sucursal_id': sucursal_id,
                     'mes': mes,
                     'anio': anio,
                     'fecha': str(row['Fecha'].date()) if pd.notna(row['Fecha']) else None,
-                    'tipo_comprobante': row.get('Tipo Comprobante', ''),
-                    'numero_comprobante': row.get('Comprobante', ''),
-                    'proveedor': row.get('Proveedor', ''),
-                    'cuit': row.get('Cuit', ''),
-                    'rubro': row.get('Rubro', ''),
-                    'subrubro': row.get('Subrubro', ''),
-                    'neto': float(row['NETO']),
-                    'iva_percepciones': float(row['IVA_PERCEPCIONES']),
-                    'total': float(row['TOTAL_GASTO']),
-                    # Detalles de importes
-                    'importe_neto_21': float(row.get('Importe Neto 21', 0)),
-                    'importe_neto_10_5': float(row.get('Importe Neto 10_5', 0)),
-                    'importe_neto_27': float(row.get('Importe Neto 27', 0)),
-                    'impuestos_internos': float(row.get('Impuestos Internos', 0)),
-                    'percepcion_iva': float(row.get('Percepcion Iva', 0)),
-                    'otras_percepciones': float(row.get('Otras Percepciones', 0)),
-                    'percepcion_iibb': float(row.get('Percepcion IIBB', 0)),
-                    'iva_21': float(row.get('Iva 21', 0)),
-                    'iva_10_5': float(row.get('Iva 10,5', 0)),
-                    'iva_27': float(row.get('Iva 27', 0)),
+                    'tipo_comprobante': str(row.get('Tipo Comprobante', '')) if pd.notna(row.get('Tipo Comprobante')) else '',
+                    'numero_comprobante': str(row.get('Comprobante', '')) if pd.notna(row.get('Comprobante')) else '',
+                    'proveedor': str(row.get('Proveedor', '')) if pd.notna(row.get('Proveedor')) else '',
+                    'cuit': str(row.get('Cuit', '')) if pd.notna(row.get('Cuit')) else '',
+                    'rubro': str(row.get('Rubro', '')) if pd.notna(row.get('Rubro')) else '',
+                    'subrubro': str(row.get('Subrubro', '')) if pd.notna(row.get('Subrubro')) else '',
+                    'neto': convertir_a_float_seguro(row['NETO']),
+                    'iva_percepciones': convertir_a_float_seguro(row['IVA_PERCEPCIONES']),
+                    'total': convertir_a_float_seguro(row['TOTAL_GASTO']),
+                    # Detalles de importes con conversión segura
+                    'importe_neto_21': convertir_a_float_seguro(row.get('Importe Neto 21', 0)),
+                    'importe_neto_10_5': convertir_a_float_seguro(row.get('Importe Neto 10_5', 0)),
+                    'importe_neto_27': convertir_a_float_seguro(row.get('Importe Neto 27', 0)),
+                    'impuestos_internos': convertir_a_float_seguro(row.get('Impuestos Internos', 0)),
+                    'percepcion_iva': convertir_a_float_seguro(row.get('Percepcion Iva', 0)),
+                    'otras_percepciones': convertir_a_float_seguro(row.get('Otras Percepciones', 0)),
+                    'percepcion_iibb': convertir_a_float_seguro(row.get('Percepcion IIBB', 0)),
+                    'iva_21': convertir_a_float_seguro(row.get('Iva 21', 0)),
+                    'iva_10_5': convertir_a_float_seguro(row.get('Iva 10,5', 0)),
+                    'iva_27': convertir_a_float_seguro(row.get('Iva 27', 0)),
                     'usuario_importacion': usuario
                 }
                 

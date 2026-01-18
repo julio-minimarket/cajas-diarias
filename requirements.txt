@@ -6,3 +6,4 @@ pytz
 PyMuPDF
 requests
 openpyxl
+plotly

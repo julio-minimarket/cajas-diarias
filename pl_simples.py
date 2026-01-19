@@ -1131,13 +1131,52 @@ def mostrar_tab_analisis(supabase, sucursales, mes_seleccionado, anio_selecciona
     st.markdown("---")
     st.subheader("📊 Composición del Gasto")
     
+    # 🔍 DEBUG NIVEL 1: Ver qué datos tiene df_gastos
+    st.error("🔍 DEBUG CRÍTICO - NIVEL 1")
+    st.write(f"df_gastos tiene {len(df_gastos)} filas")
+    st.write(f"Columnas de df_gastos: {list(df_gastos.columns)}")
+    if len(df_gastos) > 0:
+        st.write("Primeras 3 filas de df_gastos:")
+        st.dataframe(df_gastos.head(3))
+    else:
+        st.error("⚠️ df_gastos está VACÍO - no hay gastos para analizar")
+    
     analisis = analizar_composicion_gastos(df_gastos, total_ingresos)
+    
+    # 🔍 DEBUG NIVEL 2: Ver qué retorna analizar_composicion_gastos
+    st.error("🔍 DEBUG CRÍTICO - NIVEL 2")
+    st.write(f"analisis tiene {len(analisis.get('rubros', []))} rubros")
+    st.write("Estructura de analisis:")
+    st.json(analisis)
     
     df_analisis = pd.DataFrame(analisis['rubros'])
     
+    # 🔍 DEBUG NIVEL 3: Ver df_analisis
+    st.error("🔍 DEBUG CRÍTICO - NIVEL 3")
+    st.write(f"df_analisis tiene {len(df_analisis)} filas y {len(df_analisis.columns)} columnas")
     if not df_analisis.empty:
+        st.write("Columnas de df_analisis:", list(df_analisis.columns))
+        st.write("df_analisis completo:")
+        st.dataframe(df_analisis)
+    else:
+        st.error("⚠️ df_analisis está VACÍO después de crear el DataFrame")
+    
+    if not df_analisis.empty:
+        st.error("🔍 DEBUG CRÍTICO - NIVEL 3.5 (Formateando df_display)")
+        st.write("Iniciando formateo de df_display...")
+        
         # Formatear para visualización
         df_display = df_analisis.copy()
+        st.write(f"df_display copiado: {len(df_display)} filas")
+        
+        # Verificar que existan las columnas necesarias
+        columnas_necesarias = ['gasto', 'porcentaje_real', 'benchmark', 'estado', 'rubro']
+        columnas_faltantes = [col for col in columnas_necesarias if col not in df_display.columns]
+        if columnas_faltantes:
+            st.error(f"❌ Faltan columnas: {columnas_faltantes}")
+        else:
+            st.write("✅ Todas las columnas necesarias presentes")
+        
         df_display['Gasto'] = df_display['gasto'].apply(
             lambda x: f"${x:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
         )
@@ -1152,10 +1191,23 @@ def mostrar_tab_analisis(supabase, sucursales, mes_seleccionado, anio_selecciona
             lambda x: "🟢 OK" if x == "ok" else ("🔴 Alto" if x == "alto" else ("🟡 Bajo" if x == "bajo" else "⚪"))
         )
         
+        st.write("✅ Formateo completado")
+        st.write("Columnas de df_display después del formateo:", list(df_display.columns))
+        st.write("df_display formateado:")
+        st.dataframe(df_display)
+        
+        # Seleccionar solo las columnas que queremos mostrar
+        columnas_mostrar = ['rubro', 'Gasto', '% Real', '% Ideal', 'Rango Óptimo', 'Estado']
+        df_final = df_display[columnas_mostrar].rename(columns={'rubro': 'Rubro'})
+        
+        st.error("🔍 DEBUG - DataFrame FINAL a mostrar:")
+        st.write(f"df_final tiene {len(df_final)} filas y {len(df_final.columns)} columnas")
+        st.write("Columnas:", list(df_final.columns))
+        st.dataframe(df_final)
+        
+        st.markdown("### 📋 Tabla Final (la que debería verse bien)")
         st.dataframe(
-            df_display[['rubro', 'Gasto', '% Real', '% Ideal', 'Rango Óptimo', 'Estado']].rename(columns={
-                'rubro': 'Rubro'
-            }),
+            df_final,
             hide_index=True,
             use_container_width=True,
             height=400  # 🔴 FIX: Altura explícita para evitar colapso
@@ -1193,11 +1245,25 @@ def mostrar_tab_analisis(supabase, sucursales, mes_seleccionado, anio_selecciona
         st.markdown("---")
         st.subheader("📈 Visualizaciones")
         
+        # 🔍 DEBUG NIVEL 4: Verificar datos antes de gráficos
+        st.error("🔍 DEBUG CRÍTICO - NIVEL 4 (Antes de gráficos)")
+        st.write(f"df_analisis para gráficos tiene {len(df_analisis)} filas")
+        if not df_analisis.empty:
+            st.write("Columnas disponibles:", list(df_analisis.columns))
+            if 'gasto' in df_analisis.columns and 'rubro' in df_analisis.columns:
+                st.write("✅ Columnas 'gasto' y 'rubro' presentes")
+                st.write(f"Total de gasto a graficar: ${df_analisis['gasto'].sum():,.2f}")
+            else:
+                st.error("❌ Faltan columnas 'gasto' o 'rubro'")
+        else:
+            st.error("❌ df_analisis está vacío para gráficos")
+        
         # Verificar si plotly está disponible
         try:
             import plotly.express as px
             import plotly.graph_objects as go
             plotly_disponible = True
+            st.write("✅ Plotly disponible")
         except ImportError:
             plotly_disponible = False
             st.warning("⚠️ **Plotly no está instalado**. Los gráficos no están disponibles.")

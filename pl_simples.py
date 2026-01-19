@@ -819,7 +819,7 @@ def mostrar_tab_importacion(supabase, sucursales, mes_seleccionado, anio_selecci
                 st.dataframe(
                     df_mapeadas[['CSV', 'Sucursal', 'Registros', 'Total Formateado']],
                     hide_index=True,
-                    use_container_width=True
+                    width=True
                 )
             
             # Mostrar empresas sin mapear
@@ -832,7 +832,7 @@ def mostrar_tab_importacion(supabase, sucursales, mes_seleccionado, anio_selecci
                 st.dataframe(
                     df_sin_mapear[['Empresa', 'Registros', 'Total Formateado']],
                     hide_index=True,
-                    use_container_width=True
+                    width=True
                 )
                 
                 st.warning("💡 **Solución**: Crea estas sucursales en el sistema o ajusta los nombres en el CSV para que coincidan.")
@@ -922,7 +922,7 @@ def mostrar_tab_importacion(supabase, sucursales, mes_seleccionado, anio_selecci
                 st.error("❌ No se puede importar porque ninguna empresa fue mapeada correctamente.")
                 st.info("💡 Crea las sucursales en el sistema o ajusta los nombres en el CSV.")
             else:
-                if st.button("💾 Guardar en Base de Datos", type="primary", use_container_width=True, disabled=not puede_importar):
+                if st.button("💾 Guardar en Base de Datos", type="primary", width=True, disabled=not puede_importar):
                     with st.spinner("Guardando gastos en la base de datos..."):
                         resultado = guardar_gastos_en_db(
                             supabase, 
@@ -1157,7 +1157,7 @@ def mostrar_tab_analisis(supabase, sucursales, mes_seleccionado, anio_selecciona
                 'rubro': 'Rubro'
             }),
             hide_index=True,
-            use_container_width=True
+            width=True
         )
         
         # Alertas
@@ -1212,7 +1212,7 @@ def mostrar_tab_analisis(supabase, sucursales, mes_seleccionado, anio_selecciona
                     names='rubro',
                     title='Distribución de Gastos por Rubro'
                 )
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width=True)
             
             with tab2:
                 df_comp = df_analisis[df_analisis['benchmark'].notna()].copy()
@@ -1241,7 +1241,7 @@ def mostrar_tab_analisis(supabase, sucursales, mes_seleccionado, anio_selecciona
                         barmode='group'
                     )
                     
-                    st.plotly_chart(fig, use_container_width=True)
+                    st.plotly_chart(fig, width=True)
         
         # Exportar
         st.markdown("---")
@@ -1335,7 +1335,7 @@ def mostrar_tab_evolucion(supabase, sucursales, sucursal_seleccionada):
     st.dataframe(
         df_display[['Período', 'Ingresos', 'Gastos', 'Resultado', 'Margen %']],
         hide_index=True,
-        use_container_width=True
+        width=True
     )
     
     # Gráficos de tendencia
@@ -1380,7 +1380,7 @@ def mostrar_tab_evolucion(supabase, sucursales, sucursal_seleccionada):
             hovermode='x unified'
         )
         
-        st.plotly_chart(fig1, use_container_width=True)
+        st.plotly_chart(fig1, width=True)
         
         # Gráfico 2: Margen
         fig2 = go.Figure()
@@ -1405,7 +1405,7 @@ def mostrar_tab_evolucion(supabase, sucursales, sucursal_seleccionada):
             hovermode='x unified'
         )
         
-        st.plotly_chart(fig2, use_container_width=True)
+        st.plotly_chart(fig2, width=True)
     
     # Estadísticas
     st.markdown("---")

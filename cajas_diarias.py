@@ -1454,32 +1454,7 @@ elif active_tab == "📈 Reportes" and auth.is_admin():
                         
                         # 🔴 FIX: Agregar límite alto para evitar corte en 1000 registros
                         result_ventas = query_ventas.limit(100000).execute()
-                        
-                        # 🔍 DEBUG CRÍTICO - Ver exactamente qué trae la query
-                        st.write("=" * 80)
-                        st.write("🔍 DEBUG DE QUERY DE VENTAS")
-                        st.write("=" * 80)
-                        st.write(f"📅 Fechas solicitadas: {fecha_desde} a {fecha_hasta}")
-                        st.write(f"📊 Registros obtenidos: {len(result_ventas.data) if result_ventas.data else 0}")
-
-                        if result_ventas.data and len(result_ventas.data) > 0:
-                            st.write(f"📍 Primer registro: {result_ventas.data[0]}")
-                            st.write(f"📍 Último registro: {result_ventas.data[-1]}")
-                            
-                            # Ver rango de fechas en los datos obtenidos
-                            fechas = [r['fecha'] for r in result_ventas.data]
-                            st.write(f"📅 Fecha mínima en datos: {min(fechas)}")
-                            st.write(f"📅 Fecha máxima en datos: {max(fechas)}")
-                            
-                            # Filtrar solo Liverpool
-                            liverpool_data = [r for r in result_ventas.data if r['sucursal_id'] == 7]
-                            st.write(f"🏪 Liverpool - Registros: {len(liverpool_data)}")
-                            
-                            if liverpool_data:
-                                total_liverpool = sum(r['monto'] for r in liverpool_data)
-                                st.write(f"💰 Liverpool - Total: ${total_liverpool:,.2f}")
-                            
-                        st.write("=" * 80)                        
+                                              
                         # ==================== CONSULTA 2: GASTOS ====================
                         # 🔴 FIX REAL: Quitar JOINs de la query para evitar límite de 1000
                         query_gastos = supabase.table("movimientos_diarios")\

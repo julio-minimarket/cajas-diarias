@@ -51,6 +51,7 @@ import auth  # Importar módulo de autenticación
 import eventos
 import cuentas_corrientes  # Módulo de Cuentas Corrientes
 import transferencias  # Módulo de Transferencias Bancarias
+import pl_simples  # Módulo de P&L Simples - Informe Mensual de Resultados
 
 from datetime import date, datetime
 import pytz
@@ -806,7 +807,8 @@ if auth.is_admin():
     tab_options = [
         "📝 Carga", 
         "📊 Resumen del Día", 
-        "📈 Reportes", 
+        "📈 Reportes",
+        "📊 P&L Simples",  # ✅ AGREGADO: Módulo de análisis de P&L
         "💼 CRM y Conciliación",
         "🔧 Mantenimiento",
         "🎭 Eventos",
@@ -1967,6 +1969,10 @@ elif active_tab == "📈 Reportes" and auth.is_admin():
 # Reemplaza TODA la sección del tab4 con este código
 # (Desde "with tab4:" hasta antes de "# ==================== TAB 5")
 # ==================== INICIO DEL CÓDIGO ====================
+
+# ==================== TAB: P&L SIMPLES ====================
+elif active_tab == "📊 P&L Simples" and auth.is_admin():
+    pl_simples.main(supabase)  # ✅ CORREGIDO: llamar a main() con supabase
 
 elif active_tab == "💼 CRM y Conciliación" and auth.is_admin():
         st.subheader("💼 CRM y Conciliación de Cajas")

@@ -35,6 +35,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import date, datetime
+import calendar  # Para calcular último día del mes
 import os
 from functools import wraps
 
@@ -50,7 +51,6 @@ import auth  # Importar módulo de autenticación
 import eventos
 import cuentas_corrientes  # Módulo de Cuentas Corrientes
 import transferencias  # Módulo de Transferencias Bancarias
-import pl_simples  # Módulo de P&L Simples - Informe Mensual de Resultados
 
 from datetime import date, datetime
 import pytz
@@ -811,8 +811,7 @@ if auth.is_admin():
         "🔧 Mantenimiento",
         "🎭 Eventos",
         "💳 Cuentas Ctes.",
-        "💸 Transferencias",
-        "📊 P&L Simples"
+        "💸 Transferencias"
     ]
 else:
     tab_options = ["📝 Carga", "📊 Resumen del Día"]
@@ -1358,7 +1357,10 @@ elif active_tab == "📈 Reportes" and auth.is_admin():
                     fecha_desde = st.date_input("Desde", value=date.today().replace(day=1), key="reporte_desde")
                 
                 with col2:
-                    fecha_hasta = st.date_input("Hasta", value=date.today(), key="reporte_hasta")
+                    # ✅ CORREGIDO: Usar último día del mes en lugar de date.today()
+                    hoy = date.today()
+                    ultimo_dia_mes = date(hoy.year, hoy.month, calendar.monthrange(hoy.year, hoy.month)[1])
+                    fecha_hasta = st.date_input("Hasta", value=ultimo_dia_mes, key="reporte_hasta")
                 
                 # Segunda fila: Filtros de sucursal (solo para admin)
                 if auth.is_admin():
@@ -3202,6 +3204,3 @@ elif active_tab == "💳 Cuentas Ctes." and auth.is_admin():
 # ==================== TAB 9: TRANSFERENCIAS ====================
 elif active_tab == "💸 Transferencias" and auth.is_admin():
         transferencias.main(supabase)
-# ==================== TAB 10: P&L SIMPLES ====================
-elif active_tab == "📊 P&L Simples" and auth.is_admin():
-        pl_simples.main(supabase)

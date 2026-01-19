@@ -1252,9 +1252,13 @@ def mostrar_tab_analisis(supabase, sucursales, mes_seleccionado, anio_selecciona
                 
                 sucursal_nombre = sucursal_seleccionada['nombre'] if sucursal_seleccionada else "Todas"
                 nombre_archivo = f"PL_Simple_{meses[mes_seleccionado]}_{anio_seleccionado}_{sucursal_nombre}.xlsx"
-                ruta_archivo = f"/home/claude/{nombre_archivo}"
                 
-                with pd.ExcelWriter(ruta_archivo, engine='openpyxl') as writer:
+                # 🔴 FIX: Usar BytesIO en lugar de guardar en disco (Streamlit Cloud no tiene /home/claude/)
+                from io import BytesIO
+                
+                buffer = BytesIO()
+                
+                with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
                     # Hoja 1: Resumen
                     resumen_exec = pd.DataFrame([{
                         'Período': f"{meses[mes_seleccionado]} {anio_seleccionado}",
@@ -1278,13 +1282,15 @@ def mostrar_tab_analisis(supabase, sucursales, mes_seleccionado, anio_selecciona
                 
                 st.success("✅ Reporte generado exitosamente")
                 
-                with open(ruta_archivo, 'rb') as f:
-                    st.download_button(
-                        label="⬇️ Descargar Reporte",
-                        data=f,
-                        file_name=nombre_archivo,
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                    )
+                # Preparar el buffer para descarga
+                buffer.seek(0)
+                
+                st.download_button(
+                    label="⬇️ Descargar Reporte Excel",
+                    data=buffer,
+                    file_name=nombre_archivo,
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
 
 
 def mostrar_tab_evolucion(supabase, sucursales, sucursal_seleccionada):

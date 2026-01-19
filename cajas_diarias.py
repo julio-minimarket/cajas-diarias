@@ -1439,8 +1439,9 @@ elif active_tab == "📈 Reportes" and auth.is_admin():
                         # 🆕 CAMBIO PRINCIPAL: Hacer DOS consultas separadas para evitar problemas de JOIN
                         
                         # ==================== CONSULTA 1: VENTAS ====================
+                        # 🔴 FIX REAL: Quitar JOINs de la query para evitar límite de 1000
                         query_ventas = supabase.table("movimientos_diarios")\
-                            .select("*, sucursales(nombre), categorias(nombre), medios_pago(nombre), puntos_venta(nombre)")\
+                            .select("*")\
                             .eq("tipo", "venta")\
                             .gte("fecha", str(fecha_desde))\
                             .lte("fecha", str(fecha_hasta))
@@ -1455,8 +1456,9 @@ elif active_tab == "📈 Reportes" and auth.is_admin():
                         result_ventas = query_ventas.limit(100000).execute()
                         
                         # ==================== CONSULTA 2: GASTOS ====================
+                        # 🔴 FIX REAL: Quitar JOINs de la query para evitar límite de 1000
                         query_gastos = supabase.table("movimientos_diarios")\
-                            .select("*, sucursales(nombre), categorias(nombre), medios_pago(nombre), puntos_venta(nombre)")\
+                            .select("*")\
                             .eq("tipo", "gasto")\
                             .gte("fecha", str(fecha_desde))\
                             .lte("fecha", str(fecha_hasta))
@@ -1480,34 +1482,39 @@ elif active_tab == "📈 Reportes" and auth.is_admin():
                         df = pd.concat([df_ventas, df_gastos], ignore_index=True) if len(df_ventas) > 0 or len(df_gastos) > 0 else pd.DataFrame()
                         
                         if len(df) > 0:
-                            # Extraer nombres de las relaciones
-                            df['sucursal_nombre'] = df['sucursales'].apply(lambda x: x['nombre'] if x else 'N/A')
-                            df['categoria_nombre'] = df['categorias'].apply(lambda x: x['nombre'] if x else 'Sin categoría')
-                            df['medio_pago_nombre'] = df['medios_pago'].apply(lambda x: x['nombre'] if x else 'Sin medio')
+                            # 🔴 FIX: Hacer JOINs en Python en lugar de en la query
+                            # Obtener diccionarios de lookup
+                            sucursales_dict = {s['id']: s['nombre'] for s in sucursales}
                             
-                            # 🆕 Procesar puntos de venta
-                            if 'puntos_venta' in df.columns:
-                                df['punto_venta_nombre'] = df['puntos_venta'].apply(lambda x: x['nombre'] if x else '')
+                            categorias_result = supabase.table("categorias").select("id, nombre").execute()
+                            categorias_dict = {c['id']: c['nombre'] for c in categorias_result.data} if categorias_result.data else {}
                             
-                            # Extraer nombres en df_ventas
+                            medios_result = supabase.table("medios_pago").select("id, nombre").execute()
+                            medios_dict = {m['id']: m['nombre'] for m in medios_result.data} if medios_result.data else {}
+                            
+                            puntos_result = supabase.table("puntos_venta").select("id, nombre").execute()
+                            puntos_dict = {p['id']: p['nombre'] for p in puntos_result.data} if puntos_result.data else {}
+                            
+                            # Mapear IDs a nombres en df combinado
+                            df['sucursal_nombre'] = df['sucursal_id'].map(sucursales_dict).fillna('N/A')
+                            df['categoria_nombre'] = df['categoria_id'].map(categorias_dict).fillna('Sin categoría')
+                            df['medio_pago_nombre'] = df['medio_pago_id'].map(medios_dict).fillna('Sin medio')
+                            df['punto_venta_nombre'] = df['punto_venta_id'].map(puntos_dict).fillna('') if 'punto_venta_id' in df.columns else ''
+                            
+                            # Mapear IDs a nombres en df_ventas
                             if len(df_ventas) > 0:
-                                df_ventas['sucursal_nombre'] = df_ventas['sucursales'].apply(lambda x: x['nombre'] if x else 'N/A')
-                                df_ventas['categoria_nombre'] = df_ventas['categorias'].apply(lambda x: x['nombre'] if x else 'Sin categoría')
-                                df_ventas['medio_pago_nombre'] = df_ventas['medios_pago'].apply(lambda x: x['nombre'] if x else 'Sin medio')
-                                
-                                # 🆕 Procesar puntos de venta en df_ventas
-                                if 'puntos_venta' in df_ventas.columns:
-                                    df_ventas['punto_venta_nombre'] = df_ventas['puntos_venta'].apply(lambda x: x['nombre'] if x else '')
+                                df_ventas['sucursal_nombre'] = df_ventas['sucursal_id'].map(sucursales_dict).fillna('N/A')
+                                df_ventas['categoria_nombre'] = df_ventas['categoria_id'].map(categorias_dict).fillna('Sin categoría')
+                                df_ventas['medio_pago_nombre'] = df_ventas['medio_pago_id'].map(medios_dict).fillna('Sin medio')
+                                df_ventas['punto_venta_nombre'] = df_ventas['punto_venta_id'].map(puntos_dict).fillna('') if 'punto_venta_id' in df_ventas.columns else ''
                             
-                            # Extraer nombres en df_gastos
+                            # Mapear IDs a nombres en df_gastos
                             if len(df_gastos) > 0:
-                                df_gastos['sucursal_nombre'] = df_gastos['sucursales'].apply(lambda x: x['nombre'] if x else 'N/A')
-                                df_gastos['categoria_nombre'] = df_gastos['categorias'].apply(lambda x: x['nombre'] if x else 'Sin categoría')
-                                df_gastos['medio_pago_nombre'] = df_gastos['medios_pago'].apply(lambda x: x['nombre'] if x else 'Sin medio')
-                                
-                                # 🆕 Procesar puntos de venta en df_gastos
-                                if 'puntos_venta' in df_gastos.columns:
-                                    df_gastos['punto_venta_nombre'] = df_gastos['puntos_venta'].apply(lambda x: x['nombre'] if x else '')
+                                df_gastos['sucursal_nombre'] = df_gastos['sucursal_id'].map(sucursales_dict).fillna('N/A')
+                                df_gastos['categoria_nombre'] = df_gastos['categoria_id'].map(categorias_dict).fillna('Sin categoría')
+                                df_gastos['medio_pago_nombre'] = df_gastos['medio_pago_id'].map(medios_dict).fillna('Sin medio')
+                                df_gastos['punto_venta_nombre'] = df_gastos['punto_venta_id'].map(puntos_dict).fillna('') if 'punto_venta_id' in df_gastos.columns else ''
+                            
                             
                             # Calcular totales
                             ventas_total = df_ventas['monto'].sum() if len(df_ventas) > 0 else 0.0
@@ -1835,8 +1842,9 @@ elif active_tab == "📈 Reportes" and auth.is_admin():
                             sucursales_ids_gastos = [sucursal_seleccionada['id']]
                         
                         # Construir consulta con filtros
+                        # 🔴 FIX REAL: Quitar JOINs de la query para evitar límite de 1000
                         query = supabase.table("movimientos_diarios")\
-                            .select("*, sucursales(nombre), categorias(nombre), medios_pago(nombre), puntos_venta(nombre)")\
+                            .select("*")\
                             .eq("tipo", "gasto")\
                             .gte("fecha", str(fecha_desde_gastos))\
                             .lte("fecha", str(fecha_hasta_gastos))
@@ -1856,14 +1864,24 @@ elif active_tab == "📈 Reportes" and auth.is_admin():
                         if result.data:
                             df_gastos = pd.DataFrame(result.data)
                             
-                            # Extraer nombres
-                            df_gastos['sucursal_nombre'] = df_gastos['sucursales'].apply(lambda x: x['nombre'] if x else 'N/A')
-                            df_gastos['categoria_nombre'] = df_gastos['categorias'].apply(lambda x: x['nombre'] if x else 'Sin categoría')
-                            df_gastos['medio_pago_nombre'] = df_gastos['medios_pago'].apply(lambda x: x['nombre'] if x else 'Sin medio')
+                            # 🔴 FIX: Hacer JOINs en Python en lugar de en la query
+                            sucursales_dict = {s['id']: s['nombre'] for s in sucursales}
                             
-                            # 🆕 Procesar puntos de venta
-                            if 'puntos_venta' in df_gastos.columns:
-                                df_gastos['punto_venta_nombre'] = df_gastos['puntos_venta'].apply(lambda x: x['nombre'] if x else '')
+                            categorias_result = supabase.table("categorias").select("id, nombre").execute()
+                            categorias_dict = {c['id']: c['nombre'] for c in categorias_result.data} if categorias_result.data else {}
+                            
+                            medios_result = supabase.table("medios_pago").select("id, nombre").execute()
+                            medios_dict = {m['id']: m['nombre'] for m in medios_result.data} if medios_result.data else {}
+                            
+                            puntos_result = supabase.table("puntos_venta").select("id, nombre").execute()
+                            puntos_dict = {p['id']: p['nombre'] for p in puntos_result.data} if puntos_result.data else {}
+                            
+                            # Mapear IDs a nombres
+                            df_gastos['sucursal_nombre'] = df_gastos['sucursal_id'].map(sucursales_dict).fillna('N/A')
+                            df_gastos['categoria_nombre'] = df_gastos['categoria_id'].map(categorias_dict).fillna('Sin categoría')
+                            df_gastos['medio_pago_nombre'] = df_gastos['medio_pago_id'].map(medios_dict).fillna('Sin medio')
+                            df_gastos['punto_venta_nombre'] = df_gastos['punto_venta_id'].map(puntos_dict).fillna('') if 'punto_venta_id' in df_gastos.columns else ''
+                            
                             
                             st.markdown(f"#### 📊 Gastos del {fecha_desde_gastos.strftime('%d/%m/%Y')} al {fecha_hasta_gastos.strftime('%d/%m/%Y')}")
                             

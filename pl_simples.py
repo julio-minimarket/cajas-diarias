@@ -1496,6 +1496,533 @@ def mostrar_tab_evolucion(supabase, sucursales, sucursal_seleccionada):
         )
 
 
+
+# ================================================================================
+# ESTADO DE RESULTADO GRANULAR
+# ================================================================================
+
+import pandas as pd
+import streamlit as st
+from io import BytesIO
+
+
+# ============================================================================
+# FUNCIÓN 1: Cargar Mapeo desde Excel
+# ============================================================================
+
+def cargar_mapeo_erg_desde_excel(supabase, archivo_excel):
+    """
+    Carga el mapeo de Estado de Resultado Granular desde Excel a Supabase.
+    
+    Args:
+        supabase: Cliente de Supabase
+        archivo_excel: Archivo Excel con hoja "Conjunto Datos"
+    
+    Returns:
+        dict con resultado de la operación
+    """
+    try:
+        # Leer hoja "Conjunto Datos"
+        df_mapeo = pd.read_excel(archivo_excel, sheet_name="Conjunto Datos")
+        
+        # Definir grupos para subtotales (basado en la estructura del informe)
+        grupos = {
+            1: [1, 2, 3, 4],      # CMC, Sueldos, Cargas sociales, Sindicatos
+            2: [5, 6],             # Alquiler, Servicios
+            3: [7, 8],             # Honorarios, Publicidad
+            4: [9, 10, 11],        # Materiales, Mantenimiento, Bienes de uso
+            5: [12, 18],           # Royalties, Servicios admin
+            6: [19],               # Retiros
+            7: [13, 14, 15, 16, 17]  # Gastos financieros e impuestos
+        }
+        
+        # Crear diccionario cod_inf → orden_grupo
+        cod_inf_to_grupo = {}
+        for grupo, cod_infs in grupos.items():
+            for cod_inf in cod_infs:
+                cod_inf_to_grupo[cod_inf] = grupo
+        
+        # Procesar cada fila del mapeo
+        registros = []
+        
+        for idx, row in df_mapeo.iterrows():
+            cod_inf = int(row['Cod_Inf'])
+            item = str(row['Item']).strip()
+            orden_grupo = cod_inf_to_grupo.get(cod_inf, 1)
+            
+            # Recopilar todos los subrubros
+            for col in df_mapeo.columns:
+                if 'Subrubro' in col:
+                    subrubro = row[col]
+                    if pd.notna(subrubro) and str(subrubro).strip() != '':
+                        registros.append({
+                            'cod_inf': cod_inf,
+                            'item': item,
+                            'subrubro': str(subrubro).strip().upper(),
+                            'orden_grupo': orden_grupo
+                        })
+        
+        # Limpiar tabla existente
+        try:
+            supabase.table("mapeo_estado_resultado_granular")\
+                .delete()\
+                .neq('id', 0)\
+                .execute()
+        except:
+            pass
+        
+        # Insertar registros en batch
+        if registros:
+            supabase.table("mapeo_estado_resultado_granular")\
+                .insert(registros)\
+                .execute()
+        
+        return {
+            'exitoso': True,
+            'registros': len(registros),
+            'items': len(df_mapeo),
+            'mensaje': f"✅ {len(registros)} relaciones cargadas ({len(df_mapeo)} items)"
+        }
+        
+    except Exception as e:
+        return {
+            'exitoso': False,
+            'registros': 0,
+            'items': 0,
+            'mensaje': f"❌ Error: {str(e)}"
+        }
+
+
+# ============================================================================
+# FUNCIÓN 2: Obtener Mapeo desde Supabase
+# ============================================================================
+
+@st.cache_data(ttl=300)  # Cachear 5 minutos
+def obtener_mapeo_erg(_supabase):
+    """
+    Obtiene el mapeo ERG desde Supabase.
+    
+    Returns:
+        DataFrame con el mapeo (cod_inf, item, subrubro, orden_grupo)
+    """
+    try:
+        result = _supabase.table("mapeo_estado_resultado_granular")\
+            .select("*")\
+            .execute()
+        
+        if result.data:
+            df = pd.DataFrame(result.data)
+            df['subrubro'] = df['subrubro'].str.upper().str.strip()
+            return df
+        else:
+            return pd.DataFrame()
+            
+    except Exception as e:
+        st.error(f"❌ Error obteniendo mapeo: {str(e)}")
+        return pd.DataFrame()
+
+
+# ============================================================================
+# FUNCIÓN 3: Agrupar Gastos según Mapeo ERG
+# ============================================================================
+
+def agrupar_gastos_erg(df_gastos, df_mapeo):
+    """
+    Agrupa gastos según el mapeo ERG.
+    
+    Args:
+        df_gastos: DataFrame con gastos (debe tener 'subrubro' y 'total')
+        df_mapeo: DataFrame con mapeo ERG
+    
+    Returns:
+        DataFrame agrupado por item
+    """
+    if df_gastos.empty or df_mapeo.empty:
+        return pd.DataFrame()
+    
+    try:
+        # Normalizar subrubros
+        df_gastos['subrubro_norm'] = df_gastos['subrubro'].str.upper().str.strip()
+        
+        # Merge con mapeo
+        df_merged = df_gastos.merge(
+            df_mapeo[['cod_inf', 'item', 'subrubro', 'orden_grupo']],
+            left_on='subrubro_norm',
+            right_on='subrubro',
+            how='left'
+        )
+        
+        # Agrupar por cod_inf, item, orden_grupo
+        df_agrupado = df_merged.groupby(['cod_inf', 'item', 'orden_grupo']).agg({
+            'total': 'sum'
+        }).reset_index()
+        
+        # Eliminar filas sin mapeo (cod_inf nulo)
+        df_agrupado = df_agrupado[df_agrupado['cod_inf'].notna()]
+        
+        # Ordenar por cod_inf
+        df_agrupado = df_agrupado.sort_values('cod_inf')
+        
+        return df_agrupado
+        
+    except Exception as e:
+        st.error(f"❌ Error agrupando gastos: {str(e)}")
+        return pd.DataFrame()
+
+
+# ============================================================================
+# FUNCIÓN 4: Generar Estado de Resultado Granular
+# ============================================================================
+
+def generar_estado_resultado_granular(df_gastos_agrupados, total_ingresos, sucursal_nombre, mes, anio):
+    """
+    Genera el Estado de Resultado Granular con estructura jerárquica.
+    
+    Args:
+        df_gastos_agrupados: DataFrame con gastos agrupados
+        total_ingresos: Total de ingresos del período
+        sucursal_nombre: Nombre de la sucursal
+        mes: Mes del reporte
+        anio: Año del reporte
+    
+    Returns:
+        list de dict con las filas del reporte
+    """
+    reporte = []
+    
+    # ===========================================================================
+    # HEADER
+    # ===========================================================================
+    reporte.append({
+        'tipo': 'titulo',
+        'descripcion': 'Estado de Resultados',
+        'monto': None
+    })
+    
+    reporte.append({
+        'tipo': 'info',
+        'descripcion': f'Local: {sucursal_nombre}',
+        'monto': None
+    })
+    
+    reporte.append({
+        'tipo': 'info',
+        'descripcion': f'Período: {mes:02d}/{anio}',
+        'monto': None
+    })
+    
+    reporte.append({
+        'tipo': 'separador',
+        'descripcion': '',
+        'monto': None
+    })
+    
+    # ===========================================================================
+    # VENTAS/INGRESOS
+    # ===========================================================================
+    reporte.append({
+        'tipo': 'seccion',
+        'descripcion': 'VENTAS/INGRESOS',
+        'monto': None
+    })
+    
+    reporte.append({
+        'tipo': 'item',
+        'descripcion': 'Salon:',
+        'monto': total_ingresos
+    })
+    
+    reporte.append({
+        'tipo': 'item',
+        'descripcion': 'Delivery:',
+        'monto': 0
+    })
+    
+    reporte.append({
+        'tipo': 'item',
+        'descripcion': 'Distribuidora/Otros:',
+        'monto': 0
+    })
+    
+    reporte.append({
+        'tipo': 'total',
+        'descripcion': 'Total de ingresos',
+        'monto': total_ingresos
+    })
+    
+    reporte.append({
+        'tipo': 'separador',
+        'descripcion': '',
+        'monto': None
+    })
+    
+    # ===========================================================================
+    # COMPRAS/EGRESOS
+    # ===========================================================================
+    reporte.append({
+        'tipo': 'seccion',
+        'descripcion': 'COMPRAS/EGRESOS',
+        'monto': None
+    })
+    
+    # Procesar por grupos (1-7)
+    total_compras = 0
+    
+    for grupo in range(1, 8):
+        df_grupo = df_gastos_agrupados[df_gastos_agrupados['orden_grupo'] == grupo]
+        
+        if not df_grupo.empty:
+            subtotal_grupo = 0
+            
+            # Items del grupo
+            for idx, row in df_grupo.iterrows():
+                monto = row['total']
+                subtotal_grupo += monto
+                
+                reporte.append({
+                    'tipo': 'item_gasto',
+                    'descripcion': row['item'],
+                    'monto': monto,
+                    'cod_inf': row['cod_inf']
+                })
+            
+            # Subtotal del grupo
+            reporte.append({
+                'tipo': 'subtotal',
+                'descripcion': 'Subtotal',
+                'monto': subtotal_grupo
+            })
+            
+            total_compras += subtotal_grupo
+    
+    reporte.append({
+        'tipo': 'separador',
+        'descripcion': '',
+        'monto': None
+    })
+    
+    # ===========================================================================
+    # RESULTADO OPERATIVO
+    # ===========================================================================
+    resultado_operativo = total_ingresos - total_compras
+    
+    reporte.append({
+        'tipo': 'resultado',
+        'descripcion': 'Resultado operativo estimado',
+        'monto': resultado_operativo
+    })
+    
+    return reporte
+
+
+# ============================================================================
+# FUNCIÓN 5: Tab - Estado de Resultado Granular
+# ============================================================================
+
+def mostrar_tab_estado_resultado_granular(supabase, sucursales, mes_seleccionado, anio_seleccionado, sucursal_seleccionada):
+    """
+    Tab de Estado de Resultado Granular
+    """
+    # Header
+    col_header, col_refresh = st.columns([4, 1])
+    
+    with col_header:
+        st.subheader("📊 Estado de Resultado Granular")
+    
+    with col_refresh:
+        if st.button("🔄 Refrescar", key="refresh_erg", use_container_width=True):
+            st.cache_data.clear()
+            st.success("✅ Datos actualizados")
+            st.rerun()
+    
+    sucursal_id = sucursal_seleccionada['id'] if sucursal_seleccionada else None
+    sucursal_nombre = sucursal_seleccionada['nombre'] if sucursal_seleccionada else "Todas las sucursales"
+    
+    # ===========================================================================
+    # VERIFICAR MAPEO
+    # ===========================================================================
+    df_mapeo = obtener_mapeo_erg(supabase)
+    
+    if df_mapeo.empty:
+        st.warning("⚠️ **No hay mapeo configurado**")
+        st.info("💡 Primero debes cargar el mapeo desde el archivo Excel.")
+        
+        with st.expander("⚙️ Cargar Mapeo desde Excel", expanded=True):
+            st.markdown("### 📤 Subir archivo de mapeo")
+            st.markdown("""
+            El archivo debe tener una hoja llamada **"Conjunto Datos"** con:
+            - **Cod_Inf**: Código del item
+            - **Item**: Nombre del item para el informe
+            - **Subrubros**: Columnas con los subrubros que pertenecen a cada item
+            """)
+            
+            archivo_mapeo = st.file_uploader(
+                "Selecciona el archivo Excel",
+                type=['xlsx', 'xls'],
+                key="upload_mapeo_erg"
+            )
+            
+            if archivo_mapeo:
+                if st.button("📥 Cargar Mapeo", type="primary", use_container_width=True):
+                    with st.spinner("Cargando mapeo..."):
+                        resultado = cargar_mapeo_erg_desde_excel(supabase, archivo_mapeo)
+                        
+                        if resultado['exitoso']:
+                            st.success(resultado['mensaje'])
+                            st.cache_data.clear()
+                            st.rerun()
+                        else:
+                            st.error(resultado['mensaje'])
+        
+        return
+    
+    # ===========================================================================
+    # MOSTRAR INFO DEL MAPEO
+    # ===========================================================================
+    with st.expander("ℹ️ Información del Mapeo"):
+        items_unicos = df_mapeo.groupby('item').agg({
+            'cod_inf': 'first',
+            'subrubro': lambda x: list(x)
+        }).reset_index().sort_values('cod_inf')
+        
+        st.write(f"**Total items configurados:** {len(items_unicos)}")
+        st.write(f"**Total subrubros mapeados:** {len(df_mapeo)}")
+        
+        st.markdown("### Items Configurados:")
+        for idx, row in items_unicos.iterrows():
+            cod_inf = row['cod_inf']
+            item = row['item']
+            subrubros = sorted(row['subrubro'])
+            st.write(f"**{cod_inf}. {item}** ({len(subrubros)} subrubros)")
+            st.caption(", ".join(subrubros))
+    
+    # ===========================================================================
+    # OBTENER DATOS
+    # ===========================================================================
+    with st.spinner("Cargando datos..."):
+        df_gastos = obtener_gastos_db(supabase, mes_seleccionado, anio_seleccionado, sucursal_id)
+        df_ingresos = obtener_ingresos_mensuales(supabase, mes_seleccionado, anio_seleccionado, sucursal_id)
+    
+    if df_gastos.empty:
+        st.warning(f"⚠️ No hay gastos para **{sucursal_nombre}** en **{mes_seleccionado}/{anio_seleccionado}**")
+        st.info("💡 Ve a 'Importar Gastos' para cargar datos.")
+        return
+    
+    # Total ingresos
+    total_ingresos = df_ingresos['monto'].sum() if not df_ingresos.empty else 0
+    
+    # ===========================================================================
+    # AGRUPAR GASTOS
+    # ===========================================================================
+    df_gastos_agrupados = agrupar_gastos_erg(df_gastos, df_mapeo)
+    
+    if df_gastos_agrupados.empty:
+        st.warning("⚠️ No se pudieron agrupar los gastos según el mapeo")
+        st.info("💡 Verifica que los subrubros de tus gastos coincidan con el mapeo configurado")
+        
+        # Mostrar subrubros que no tienen mapeo
+        subrubros_sin_mapeo = set(df_gastos['subrubro'].str.upper().str.strip()) - set(df_mapeo['subrubro'])
+        
+        if subrubros_sin_mapeo:
+            with st.expander("🔍 Subrubros sin mapeo"):
+                st.write("Los siguientes subrubros no están en el mapeo:")
+                for subrubro in sorted(subrubros_sin_mapeo):
+                    st.write(f"- {subrubro}")
+        
+        return
+    
+    # ===========================================================================
+    # GENERAR REPORTE
+    # ===========================================================================
+    reporte = generar_estado_resultado_granular(
+        df_gastos_agrupados,
+        total_ingresos,
+        sucursal_nombre,
+        mes_seleccionado,
+        anio_seleccionado
+    )
+    
+    # ===========================================================================
+    # MOSTRAR REPORTE
+    # ===========================================================================
+    st.markdown("---")
+    
+    for fila in reporte:
+        tipo = fila['tipo']
+        desc = fila['descripcion']
+        monto = fila['monto']
+        
+        if tipo == 'titulo':
+            st.markdown(f"## **{desc}**")
+        
+        elif tipo == 'info':
+            st.markdown(f"**{desc}**")
+        
+        elif tipo == 'seccion':
+            st.markdown(f"### **{desc}**")
+        
+        elif tipo == 'item':
+            monto_fmt = f"${monto:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+            st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;{desc} **{monto_fmt}**", unsafe_allow_html=True)
+        
+        elif tipo == 'item_gasto':
+            # Mostrar código solo para referencia interna
+            monto_fmt = f"${monto:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+            st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;{desc}: **{monto_fmt}**", unsafe_allow_html=True)
+        
+        elif tipo == 'subtotal':
+            monto_fmt = f"${monto:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+            st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;*{desc}*: **{monto_fmt}**", unsafe_allow_html=True)
+        
+        elif tipo == 'total':
+            monto_fmt = f"${monto:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+            st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;**{desc}**: **{monto_fmt}**", unsafe_allow_html=True)
+        
+        elif tipo == 'resultado':
+            monto_fmt = f"${monto:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+            color = "green" if monto >= 0 else "red"
+            st.markdown(f"### **{desc}**: <span style='color:{color}; font-size:1.2em'>{monto_fmt}</span>", unsafe_allow_html=True)
+        
+        elif tipo == 'separador':
+            st.markdown("---")
+    
+    # ===========================================================================
+    # BOTÓN DESCARGAR EXCEL
+    # ===========================================================================
+    st.markdown("---")
+    
+    if st.button("📥 Descargar Estado de Resultado (Excel)", type="primary"):
+        with st.spinner("Generando Excel..."):
+            # Convertir reporte a DataFrame
+            df_reporte = pd.DataFrame([
+                {
+                    'Descripción': f['descripcion'],
+                    'Monto': f['monto'] if f['monto'] is not None else ''
+                }
+                for f in reporte
+            ])
+            
+            # Generar Excel
+            buffer = BytesIO()
+            with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+                df_reporte.to_excel(writer, sheet_name='Estado Resultado', index=False)
+            
+            buffer.seek(0)
+            
+            nombre_archivo = f"Estado_Resultado_Granular_{sucursal_nombre}_{mes_seleccionado:02d}_{anio_seleccionado}.xlsx"
+            
+            st.download_button(
+                label="⬇️ Descargar Excel",
+                data=buffer,
+                file_name=nombre_archivo,
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+
+
+# ============================================================================
+
+# ================================================================================
+
 def main(supabase):
     """
     Función principal del módulo P&L Simples v2.2
@@ -1550,7 +2077,7 @@ def main(supabase):
     st.markdown("---")
     
     # Tabs
-    tab1, tab2, tab3 = st.tabs(["📁 Importar Gastos", "📊 Análisis del Período", "📈 Evolución Histórica"])
+    tab1, tab2, tab3, tab4 = st.tabs(["📁 Importar Gastos", "📊 Análisis del Período", "📈 Evolución Histórica", "📊 Estado de Resultado Granular"])
     
     with tab1:
         mostrar_tab_importacion(supabase, sucursales, mes_seleccionado, anio_seleccionado, sucursal_seleccionada)
@@ -1559,6 +2086,11 @@ def main(supabase):
         mostrar_tab_analisis(supabase, sucursales, mes_seleccionado, anio_seleccionado, sucursal_seleccionada)
     
     with tab3:
+        mostrar_tab_evolucion(supabase, sucursales, sucursal_seleccionada)
+    
+    with tab4:
+        mostrar_tab_estado_resultado_granular(supabase, sucursales, mes_seleccionado, anio_seleccionado, sucursal_seleccionada)
+
         mostrar_tab_evolucion(supabase, sucursales, sucursal_seleccionada)
 
 

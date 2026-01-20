@@ -25,8 +25,8 @@ with tab4:
 ```
 
 Esto causaba que:
-1. **tab3** llamaba a `mostrar_tab_evolucion()` → OK
-2. **tab4** TAMBIÉN llamaba a `mostrar_tab_evolucion()` → ❌ DUPLICADO
+1. **tab3** llamaba a `mostrar_tab_evolucion()`  OK
+2. **tab4** TAMBIÉN llamaba a `mostrar_tab_evolucion()`  ❌ DUPLICADO
 
 Cuando se renderizaban ambos tabs, el botón con `key="refresh_evolucion"` aparecía **DOS VECES** → `DuplicateElementKey`
 

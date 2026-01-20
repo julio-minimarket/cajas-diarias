@@ -1043,7 +1043,7 @@ def mostrar_tab_analisis(supabase, sucursales, mes_seleccionado, anio_selecciona
         st.subheader("📊 Análisis del Período Actual")
     
     with col_refresh:
-        if st.button("🔄 Refrescar", use_container_width=True, help="Actualizar datos desde la base de datos"):
+        if st.button("🔄 Refrescar", key="refresh_analisis", use_container_width=True, help="Actualizar datos desde la base de datos"):
             limpiar_cache_pl_simples()
             st.success("✅ Datos actualizados")
             st.rerun()

@@ -490,12 +490,16 @@ def eliminar_gastos_periodo(supabase, sucursal_id, mes, anio):
         return False
 
 
-def obtener_gastos_db(supabase, mes, anio, sucursal_id=None):
+@st.cache_data(ttl=30)  # 🚀 OPTIMIZACIÓN: Cachear por 30 segundos
+def obtener_gastos_db(_supabase, mes, anio, sucursal_id=None):
     """
     Obtiene los gastos desde la base de datos
+    
+    OPTIMIZADO: Resultados se cachean por 30 segundos para mejorar rendimiento.
+    El guión bajo (_supabase) indica a Streamlit que no use este parámetro para el caché.
     """
     try:
-        query = supabase.table("gastos_mensuales").select("*")
+        query = _supabase.table("gastos_mensuales").select("*")
         
         query = query.eq("mes", mes)
         query = query.eq("anio", anio)
@@ -515,9 +519,13 @@ def obtener_gastos_db(supabase, mes, anio, sucursal_id=None):
         return pd.DataFrame()
 
 
-def obtener_ingresos_mensuales(supabase, mes, anio, sucursal_id=None):
+@st.cache_data(ttl=30)  # 🚀 OPTIMIZACIÓN: Cachear por 30 segundos
+def obtener_ingresos_mensuales(_supabase, mes, anio, sucursal_id=None):
     """
     Obtiene los ingresos mensuales de la base de datos de cajas_diarias
+    
+    OPTIMIZADO: Resultados se cachean por 30 segundos para mejorar rendimiento.
+    El guión bajo (_supabase) indica a Streamlit que no use este parámetro para el caché.
     """
     try:
         # Construir fechas de inicio y fin del mes
@@ -525,7 +533,7 @@ def obtener_ingresos_mensuales(supabase, mes, anio, sucursal_id=None):
         ultimo_dia = date(anio, mes, calendar.monthrange(anio, mes)[1])
         
         # Query base
-        query = supabase.table("movimientos_diarios").select("*")
+        query = _supabase.table("movimientos_diarios").select("*")
         
         # Filtrar por fechas
         query = query.gte("fecha", str(primer_dia))
@@ -552,13 +560,17 @@ def obtener_ingresos_mensuales(supabase, mes, anio, sucursal_id=None):
         return pd.DataFrame()
 
 
-def obtener_evolucion_historica(supabase, sucursal_id, meses_atras=12):
+@st.cache_data(ttl=30)  # 🚀 OPTIMIZACIÓN: Cachear por 30 segundos
+def obtener_evolucion_historica(_supabase, sucursal_id, meses_atras=12):
     """
     Obtiene la evolución histórica de gastos e ingresos
+    
+    OPTIMIZADO: Resultados se cachean por 30 segundos para mejorar rendimiento.
+    El guión bajo (_supabase) indica a Streamlit que no use este parámetro para el caché.
     """
     try:
         # Obtener gastos históricos
-        result_gastos = supabase.table("gastos_mensuales")\
+        result_gastos = _supabase.table("gastos_mensuales")\
             .select("anio, mes, total")\
             .eq("sucursal_id", sucursal_id)\
             .execute()
@@ -580,7 +592,7 @@ def obtener_evolucion_historica(supabase, sucursal_id, meses_atras=12):
         # Obtener ingresos históricos
         fecha_limite = pd.Timestamp.now() - pd.DateOffset(months=meses_atras)
         
-        result_ingresos = supabase.table("movimientos_diarios")\
+        result_ingresos = _supabase.table("movimientos_diarios")\
             .select("fecha, monto")\
             .eq("sucursal_id", sucursal_id)\
             .eq("tipo", "venta")\
@@ -622,6 +634,24 @@ def obtener_evolucion_historica(supabase, sucursal_id, meses_atras=12):
     except Exception as e:
         st.error(f"❌ Error obteniendo evolución histórica: {str(e)}")
         return pd.DataFrame()
+
+
+
+
+def limpiar_cache_pl_simples():
+    """
+    Limpia el caché de las consultas de P&L Simples.
+    
+    🚀 OPTIMIZACIÓN: Llamar después de importar CSV o cuando se necesiten datos frescos.
+    """
+    try:
+        obtener_gastos_db.clear()
+        obtener_ingresos_mensuales.clear()
+        obtener_evolucion_historica.clear()
+        return True
+    except Exception as e:
+        st.warning(f"⚠️ No se pudo limpiar el caché: {str(e)}")
+        return False
 
 
 def calcular_benchmarks_gastronomia():
@@ -943,7 +973,8 @@ def mostrar_tab_importacion(supabase, sucursales, mes_seleccionado, anio_selecci
                             if 'gastos_eliminados' in st.session_state:
                                 del st.session_state['gastos_eliminados']
                             
-                            st.cache_data.clear()
+                            # 🚀 OPTIMIZACIÓN: Limpiar solo caché de P&L (más eficiente que limpiar todo)
+                            limpiar_cache_pl_simples()
                             
                             st.info("💡 Los gastos fueron guardados con sus fechas originales del CSV. Ve a 'Análisis del Período' o 'Evolución Histórica'.")
                         
@@ -1005,12 +1036,22 @@ def mostrar_tab_analisis(supabase, sucursales, mes_seleccionado, anio_selecciona
     """
     Tab de análisis del período actual
     """
-    st.subheader("📊 Análisis del Período Actual")
+    # Header con botón de refrescar
+    col_header, col_refresh = st.columns([4, 1])
+    
+    with col_header:
+        st.subheader("📊 Análisis del Período Actual")
+    
+    with col_refresh:
+        if st.button("🔄 Refrescar", use_container_width=True, help="Actualizar datos desde la base de datos"):
+            limpiar_cache_pl_simples()
+            st.success("✅ Datos actualizados")
+            st.rerun()
     
     sucursal_id = sucursal_seleccionada['id'] if sucursal_seleccionada else None
     sucursal_nombre = sucursal_seleccionada['nombre'] if sucursal_seleccionada else "Todas las sucursales"
     
-    # Obtener datos de la DB
+    # Obtener datos de la DB (ahora con caché)
     with st.spinner("Cargando datos..."):
         df_gastos = obtener_gastos_db(supabase, mes_seleccionado, anio_seleccionado, sucursal_id)
         df_ingresos = obtener_ingresos_mensuales(supabase, mes_seleccionado, anio_seleccionado, sucursal_id)
@@ -1297,7 +1338,17 @@ def mostrar_tab_evolucion(supabase, sucursales, sucursal_seleccionada):
     """
     Tab de evolución histórica
     """
-    st.subheader("📈 Evolución Histórica")
+    # Header con botón de refrescar
+    col_header, col_refresh = st.columns([4, 1])
+    
+    with col_header:
+        st.subheader("📈 Evolución Histórica")
+    
+    with col_refresh:
+        if st.button("🔄 Refrescar", key="refresh_evolucion", use_container_width=True, help="Actualizar datos desde la base de datos"):
+            limpiar_cache_pl_simples()
+            st.success("✅ Datos actualizados")
+            st.rerun()
     
     if sucursal_seleccionada is None:
         st.warning("⚠️ Selecciona una sucursal para ver su evolución histórica")
@@ -1308,7 +1359,7 @@ def mostrar_tab_evolucion(supabase, sucursales, sucursal_seleccionada):
     # Selector de meses a mostrar
     meses_atras = st.slider("Meses a mostrar", min_value=3, max_value=24, value=12, step=1)
     
-    # Obtener datos
+    # Obtener datos (ahora con caché)
     with st.spinner("Cargando evolución histórica..."):
         df_evolucion = obtener_evolucion_historica(supabase, sucursal_id, meses_atras)
     

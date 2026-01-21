@@ -1,7 +1,7 @@
 """
 Módulo P&L Simples - Profit & Loss Simple (v2.3 con Diseño Ejecutivo)
 Genera informes mensuales de Ingresos vs. Egresos por sucursal
-Incluye análisis de composición, evolución y reporte granular estilizado.
+Incluye análisis de composición del gasto, estadísticas comparativas y evolución histórica
 
 Autor: Julio Becker
 Fecha: Enero 2026
@@ -23,6 +23,7 @@ from io import BytesIO
 # MAPEO MANUAL: CSV -> SUCURSALES
 # ============================================================
 
+# Mapeo hardcoded (usado si no hay tabla mapeo_sucursales_csv)
 MAPEO_CSV_HARDCODED = {
     'Belfast S.A.': 4,
     'Chicken Chill Minimarket S.A.': 8,
@@ -30,18 +31,27 @@ MAPEO_CSV_HARDCODED = {
     'Destileria Open 24 S.A.': 13,
     'Friends S.A.S. Patagonia': 5,
     'Liverpool Minimarket S.A.': 7,
-    'Minimarket S.A. ': 1,
+    'Minimarket S.A. ': 1,  # Con espacio al final
     'Minimarket S.A.': 1,
     'Open 24 Minimarket S.A.': 11,
-    'Pocillos S.A.S. 1885 ': 3,
+    'Pocillos S.A.S. 1885 ': 3,  # Con espacio al final
     'Pocillos S.A.S. 1885': 3,
     'Pocillos S.A.S.Napoles Rgl': 2,
     'Rincon Chico S.A.S. Napoles Calafate': 6,
     'Temple Minimarket S.A.': 9,
+    # NOTA: "Andes Food S.A." no mapeada - no existe sucursal
 }
 
 def obtener_mapeo_manual(supabase):
+    """
+    Obtiene mapeo manual desde tabla o hardcoded
+    Prioridad:
+    1. Tabla mapeo_sucursales_csv en Supabase (si existe)
+    2. MAPEO_CSV_HARDCODED (fallback)
+    """
     mapeo = {}
+    
+    # Intentar obtener de la tabla
     try:
         result = supabase.table("mapeo_sucursales_csv")\
             .select("nombre_csv, sucursal_id")\
@@ -49,76 +59,126 @@ def obtener_mapeo_manual(supabase):
             .execute()
         
         if result.data:
+            # Usar mapeo de la tabla
             for row in result.data:
+                # Mapeo exacto
                 mapeo[row['nombre_csv']] = row['sucursal_id']
+                
+                # Mapeo normalizado
                 nombre_norm = row['nombre_csv'].upper().replace(' ', '').replace('.', '').replace(',', '')
                 mapeo[nombre_norm] = row['sucursal_id']
+            
             return mapeo
     except Exception as e:
+        # Tabla no existe o error al consultar
         print(f"[INFO] No se pudo obtener mapeo de DB, usando hardcoded: {e}")
     
+    # Usar mapeo hardcoded si no hay tabla o está vacía
     if not mapeo:
         mapeo = MAPEO_CSV_HARDCODED.copy()
+        
+        # Agregar versiones normalizadas
         for nombre_csv, sucursal_id in MAPEO_CSV_HARDCODED.items():
             nombre_norm = nombre_csv.upper().replace(' ', '').replace('.', '').replace(',', '')
             mapeo[nombre_norm] = sucursal_id
     
     return mapeo
 
+
+# ============================================================
+# FUNCIONES DE MAPEO
+# ============================================================
+
 def convertir_importe(valor):
+    """
+    Convierte importes en diferentes formatos a float
+    Maneja formato argentino ($1.234.567,89) y formato numérico (1234567.89)
+    """
     valor = str(valor).strip()
+    
+    # Si tiene $ y puntos (formato argentino: $1.234.567,89)
     if '$' in valor:
         valor = valor.replace('$', '').strip()
-        valor = valor.replace('.', '')
-        valor = valor.replace(',', '.')
+        valor = valor.replace('.', '')  # Elimino separadores de miles
+        valor = valor.replace(',', '.')  # Coma decimal a punto
+    # Si tiene coma pero no $ (formato: 1.234.567,89)
     elif ',' in valor:
-        valor = valor.replace('.', '')
-        valor = valor.replace(',', '.')
+        valor = valor.replace('.', '')  # Elimino separadores de miles
+        valor = valor.replace(',', '.')  # Coma decimal a punto
+    
     try:
         return float(valor)
     except:
         return 0.0
 
+
 def procesar_archivo_gastos(archivo_csv):
+    """
+    Procesa un archivo CSV de gastos/facturas y retorna un DataFrame con los datos calculados
+    Maneja múltiples formatos de fecha
+    """
     try:
+        # Cargo el archivo
         df = pd.read_csv(archivo_csv)
+        
+        # Elimino la última fila (totales del mes) si existe
         if len(df) > 0 and pd.isna(df.iloc[-1]['Empresa']):
             df = df[:-1]
         
+        # Columnas para calcular NETO
         columnas_neto = ['Importe Neto 21', 'Importe Neto 10_5', 'Importe Neto 27', 'Impuestos Internos']
-        columnas_iva = ['Percepcion Iva', 'Otras Percepciones', 'Percepcion IIBB', 'Iva 21', 'Iva 10,5', 'Iva 27']
         
+        # Columnas para calcular IVA
+        columnas_iva = ['Percepcion Iva', 'Otras Percepciones', 'Percepcion IIBB', 
+                        'Iva 21', 'Iva 10,5', 'Iva 27']
+        
+        # Convierto todas las columnas necesarias
         for col in columnas_neto + columnas_iva:
             if col in df.columns:
                 df[col] = df[col].apply(convertir_importe)
         
+        # Convertir fechas - Priorizar Fecha C. (Contabilización) sobre Fecha E. (Emisión)
+        # Intentar primero con Fecha C.
         if 'Fecha C.' in df.columns:
             df['Fecha'] = pd.to_datetime(df['Fecha C.'], format='%d/%m/%Y', errors='coerce')
+        
+        # Si no hay Fecha C. o hay NaN, usar Fecha E.
         if 'Fecha E.' in df.columns:
             if 'Fecha' not in df.columns:
                 df['Fecha'] = pd.to_datetime(df['Fecha E.'], format='%d/%m/%Y', errors='coerce')
             else:
+                # Rellenar NaN de Fecha con Fecha E.
                 mask = df['Fecha'].isna()
                 df.loc[mask, 'Fecha'] = pd.to_datetime(df.loc[mask, 'Fecha E.'], format='%d/%m/%Y', errors='coerce')
         
+        # Calculo NETO e IVA para cada fila
         df['NETO'] = df[columnas_neto].sum(axis=1)
         df['IVA_PERCEPCIONES'] = df[columnas_iva].sum(axis=1)
         df['TOTAL_GASTO'] = df['NETO'] + df['IVA_PERCEPCIONES']
         
+        # Elimino filas sin datos válidos
         df = df.dropna(subset=['Empresa'])
         df = df[df['TOTAL_GASTO'] > 0]
         
         return df
+        
     except Exception as e:
         st.error(f"❌ Error procesando archivo de gastos: {str(e)}")
         return None
 
+
 def verificar_gastos_existentes(supabase, sucursal_id, mes, anio):
+    """
+    Verifica si ya existen gastos cargados para una sucursal en un período específico
+    """
     try:
         query = supabase.table("gastos_mensuales").select("*")
+        
         if sucursal_id is not None:
             query = query.eq("sucursal_id", sucursal_id)
+        
         query = query.eq("mes", mes).eq("anio", anio)
+        
         result = query.execute()
         
         if result.data and len(result.data) > 0:
@@ -131,79 +191,125 @@ def verificar_gastos_existentes(supabase, sucursal_id, mes, anio):
             }
         else:
             return {'existe': False, 'cantidad': 0, 'total': 0}
+            
     except Exception as e:
         st.error(f"❌ Error verificando gastos existentes: {str(e)}")
         return {'existe': False, 'cantidad': 0, 'total': 0}
 
+
 def crear_mapeo_sucursales(supabase):
+    """
+    Crea un diccionario de mapeo: nombre_empresa -> sucursal_id
+    Soporta coincidencias parciales y variaciones de nombres
+    """
     try:
         result = supabase.table("sucursales").select("id, nombre").execute()
         if not result.data:
             return {}
+        
         mapeo = {}
         for sucursal in result.data:
             nombre = sucursal['nombre']
             sucursal_id = sucursal['id']
+            
+            # Mapeo exacto
             mapeo[nombre] = sucursal_id
+            
+            # Mapeo normalizado (sin espacios, mayúsculas, puntos)
             nombre_norm = nombre.upper().replace(' ', '').replace('.', '').replace(',', '')
             mapeo[nombre_norm] = sucursal_id
+            
+            # Mapeo por palabras clave (primeras palabras significativas)
             palabras = nombre.upper().split()
             if len(palabras) > 0:
+                # Primera palabra
                 mapeo[palabras[0]] = sucursal_id
+                # Primeras dos palabras
                 if len(palabras) > 1:
                     mapeo[f"{palabras[0]} {palabras[1]}"] = sucursal_id
+        
         return mapeo
     except Exception as e:
         st.error(f"❌ Error creando mapeo de sucursales: {str(e)}")
         return {}
 
+
 def obtener_sucursal_id_desde_nombre(nombre_empresa, mapeo_manual, mapeo_automatico):
+    """
+    Obtiene el sucursal_id desde el nombre de la empresa del CSV
+    """
     if not nombre_empresa or pd.isna(nombre_empresa):
         return None
+    
     nombre_empresa = str(nombre_empresa).strip()
     
+    # PRIORIDAD 1: Mapeo manual EXACTO
     if nombre_empresa in mapeo_manual:
         return mapeo_manual[nombre_empresa]
     
+    # PRIORIDAD 2: Mapeo manual NORMALIZADO
     nombre_norm = nombre_empresa.upper().replace(' ', '').replace('.', '').replace(',', '')
     if nombre_norm in mapeo_manual:
         return mapeo_manual[nombre_norm]
     
+    # PRIORIDAD 3: Mapeo automático
+    # Estrategia 1: Coincidencia exacta
     if nombre_empresa in mapeo_automatico:
         return mapeo_automatico[nombre_empresa]
+    
+    # Estrategia 2: Coincidencia normalizada
     if nombre_norm in mapeo_automatico:
         return mapeo_automatico[nombre_norm]
     
+    # Estrategia 3: Por palabras clave
     palabras = nombre_empresa.upper().split()
     if len(palabras) > 0:
+        # Primera palabra
         if palabras[0] in mapeo_automatico:
             return mapeo_automatico[palabras[0]]
+        # Primeras dos palabras
         if len(palabras) > 1:
             clave = f"{palabras[0]} {palabras[1]}"
             if clave in mapeo_automatico:
                 return mapeo_automatico[clave]
     
+    # Estrategia 4: Búsqueda parcial (contiene)
     for nombre_mapeado, suc_id in mapeo_automatico.items():
-        if nombre_empresa.upper() in nombre_mapeado.upper() or nombre_mapeado.upper() in nombre_empresa.upper():
+        if nombre_empresa.upper() in nombre_mapeado.upper():
+            return suc_id
+        if nombre_mapeado.upper() in nombre_empresa.upper():
             return suc_id
     
     return None
 
+
 def guardar_gastos_en_db(supabase, df_gastos, usuario=None):
+    """
+    Guarda los gastos procesados en la base de datos
+    Mapea automáticamente nombres de empresas a sucursal_id
+    """
     exitosos = 0
     errores = []
     sin_sucursal = []
     sin_fecha = []
-    duplicados = []
+    duplicados = []  # Registros que ya existen en DB
     
+    # Obtener AMBOS mapeos
     mapeo_manual = obtener_mapeo_manual(supabase)
     mapeo_automatico = crear_mapeo_sucursales(supabase)
     
     try:
         for idx, row in df_gastos.iterrows():
             try:
+                # Obtener nombre de la empresa
                 nombre_empresa = row.get('Empresa', '')
-                sucursal_id = obtener_sucursal_id_desde_nombre(nombre_empresa, mapeo_manual, mapeo_automatico)
+                
+                # Mapear a sucursal_id usando mapeo híbrido
+                sucursal_id = obtener_sucursal_id_desde_nombre(
+                    nombre_empresa, 
+                    mapeo_manual, 
+                    mapeo_automatico
+                )
                 
                 if sucursal_id is None:
                     sin_sucursal.append({
@@ -215,17 +321,20 @@ def guardar_gastos_en_db(supabase, df_gastos, usuario=None):
                     })
                     continue
                 
+                # IMPORTANTE: Extraer mes y año de la fecha del CSV
                 fecha_contable = None
                 if 'Fecha C.' in row and pd.notna(row['Fecha C.']):
                     try:
                         fecha_contable = pd.to_datetime(row['Fecha C.'], format='%d/%m/%Y', errors='coerce')
-                    except: pass
+                    except:
+                        pass
                 
                 if fecha_contable is None or pd.isna(fecha_contable):
                     if 'Fecha E.' in row and pd.notna(row['Fecha E.']):
                         try:
                             fecha_contable = pd.to_datetime(row['Fecha E.'], format='%d/%m/%Y', errors='coerce')
-                        except: pass
+                        except:
+                            pass
                 
                 if fecha_contable is None or pd.isna(fecha_contable):
                     if 'Fecha' in row and pd.notna(row['Fecha']):
@@ -244,15 +353,21 @@ def guardar_gastos_en_db(supabase, df_gastos, usuario=None):
                 mes = fecha_contable.month
                 anio = fecha_contable.year
                 
+                # Función auxiliar para convertir valores de forma segura
                 def convertir_a_float_seguro(valor):
+                    """Convierte un valor a float, reemplazando nan, inf, None con 0"""
                     try:
-                        if pd.isna(valor) or valor is None: return 0.0
+                        if pd.isna(valor) or valor is None:
+                            return 0.0
                         val_float = float(valor)
                         if not pd.isna(val_float) and val_float != float('inf') and val_float != float('-inf'):
                             return val_float
-                        else: return 0.0
-                    except: return 0.0
+                        else:
+                            return 0.0
+                    except (ValueError, TypeError):
+                        return 0.0
                 
+                # Preparar datos para inserción con conversión segura
                 gasto_data = {
                     'sucursal_id': sucursal_id,
                     'mes': mes,
@@ -280,11 +395,13 @@ def guardar_gastos_en_db(supabase, df_gastos, usuario=None):
                     'usuario_importacion': usuario
                 }
                 
+                # Insertar en base de datos
                 supabase.table("gastos_mensuales").insert(gasto_data).execute()
                 exitosos += 1
                 
             except Exception as e:
                 error_str = str(e)
+                # Detectar duplicados
                 if 'duplicate key' in error_str.lower() and 'unique_gasto_registro' in error_str.lower():
                     duplicados.append({
                         'fila': idx + 1,
@@ -295,6 +412,7 @@ def guardar_gastos_en_db(supabase, df_gastos, usuario=None):
                         'fecha': str(fecha_contable.date()) if fecha_contable else ''
                     })
                 else:
+                    # Error real (no duplicado)
                     errores.append(f"Fila {idx + 1}: {error_str}")
         
         return {
@@ -304,6 +422,7 @@ def guardar_gastos_en_db(supabase, df_gastos, usuario=None):
             'sin_fecha': sin_fecha,
             'duplicados': duplicados
         }
+        
     except Exception as e:
         return {
             'exitosos': exitosos,
@@ -312,54 +431,123 @@ def guardar_gastos_en_db(supabase, df_gastos, usuario=None):
             'sin_fecha': sin_fecha
         }
 
+
 def eliminar_gastos_periodo(supabase, sucursal_id, mes, anio):
+    """
+    Elimina todos los gastos de un período específico
+    """
     try:
-        supabase.table("gastos_mensuales").delete().eq("sucursal_id", sucursal_id).eq("mes", mes).eq("anio", anio).execute()
+        supabase.table("gastos_mensuales")\
+            .delete()\
+            .eq("sucursal_id", sucursal_id)\
+            .eq("mes", mes)\
+            .eq("anio", anio)\
+            .execute()
         return True
     except Exception as e:
         st.error(f"❌ Error eliminando gastos: {str(e)}")
         return False
 
-@st.cache_data(ttl=30)
+
+@st.cache_data(ttl=30)  # 🚀 OPTIMIZACIÓN: Cachear por 30 segundos
 def obtener_gastos_db(_supabase, mes, anio, sucursal_id=None):
+    """
+    Obtiene los gastos desde la base de datos
+    """
     try:
-        query = _supabase.table("gastos_mensuales").select("*").eq("mes", mes).eq("anio", anio)
+        query = _supabase.table("gastos_mensuales").select("*")
+        
+        query = query.eq("mes", mes)
+        query = query.eq("anio", anio)
+        
         if sucursal_id is not None:
             query = query.eq("sucursal_id", sucursal_id)
+        
         result = query.execute()
-        return pd.DataFrame(result.data) if result.data else pd.DataFrame()
+        
+        if result.data:
+            return pd.DataFrame(result.data)
+        else:
+            return pd.DataFrame()
+            
     except Exception as e:
         st.error(f"❌ Error obteniendo gastos de DB: {str(e)}")
         return pd.DataFrame()
 
-@st.cache_data(ttl=30)
+
+@st.cache_data(ttl=30)  # 🚀 OPTIMIZACIÓN: Cachear por 30 segundos
 def obtener_ingresos_mensuales(_supabase, mes, anio, sucursal_id=None):
+    """
+    Obtiene los ingresos mensuales de la base de datos de cajas_diarias
+    """
     try:
+        # Construir fechas de inicio y fin del mes
         primer_dia = date(anio, mes, 1)
         ultimo_dia = date(anio, mes, calendar.monthrange(anio, mes)[1])
-        query = _supabase.table("movimientos_diarios").select("*").gte("fecha", str(primer_dia)).lte("fecha", str(ultimo_dia))
+        
+        # Query base
+        query = _supabase.table("movimientos_diarios").select("*")
+        
+        # Filtrar por fechas
+        query = query.gte("fecha", str(primer_dia))
+        query = query.lte("fecha", str(ultimo_dia))
+        
+        # Filtrar por sucursal si se especifica
         if sucursal_id is not None:
             query = query.eq("sucursal_id", sucursal_id)
+        
+        # Filtrar solo ventas (ingresos)
         query = query.eq("tipo", "venta")
+        
+        # Ejecutar query
         result = query.execute()
-        return pd.DataFrame(result.data) if result.data else pd.DataFrame()
+        
+        if result.data:
+            df = pd.DataFrame(result.data)
+            return df
+        else:
+            return pd.DataFrame()
+            
     except Exception as e:
         st.error(f"❌ Error obteniendo ingresos: {str(e)}")
         return pd.DataFrame()
 
-@st.cache_data(ttl=30)
+
+@st.cache_data(ttl=30)  # 🚀 OPTIMIZACIÓN: Cachear por 30 segundos
 def obtener_evolucion_historica(_supabase, sucursal_id, meses_atras=12):
+    """
+    Obtiene la evolución histórica de gastos e ingresos
+    """
     try:
-        result_gastos = _supabase.table("gastos_mensuales").select("anio, mes, total").eq("sucursal_id", sucursal_id).execute()
-        if not result_gastos.data: return pd.DataFrame()
+        # Obtener gastos históricos
+        result_gastos = _supabase.table("gastos_mensuales")\
+            .select("anio, mes, total")\
+            .eq("sucursal_id", sucursal_id)\
+            .execute()
         
+        if not result_gastos.data:
+            return pd.DataFrame()
+        
+        # Convertir a DataFrame y agrupar
         df_gastos = pd.DataFrame(result_gastos.data)
         df_gastos_agg = df_gastos.groupby(['anio', 'mes'])['total'].sum().reset_index()
         df_gastos_agg.columns = ['anio', 'mes', 'total_gastos']
-        df_gastos_agg['periodo'] = pd.to_datetime(df_gastos_agg['anio'].astype(str) + '-' + df_gastos_agg['mes'].astype(str).str.zfill(2) + '-01')
         
+        # Crear columna de período
+        df_gastos_agg['periodo'] = pd.to_datetime(
+            df_gastos_agg['anio'].astype(str) + '-' + 
+            df_gastos_agg['mes'].astype(str).str.zfill(2) + '-01'
+        )
+        
+        # Obtener ingresos históricos
         fecha_limite = pd.Timestamp.now() - pd.DateOffset(months=meses_atras)
-        result_ingresos = _supabase.table("movimientos_diarios").select("fecha, monto").eq("sucursal_id", sucursal_id).eq("tipo", "venta").gte("fecha", str(fecha_limite.date())).execute()
+        
+        result_ingresos = _supabase.table("movimientos_diarios")\
+            .select("fecha, monto")\
+            .eq("sucursal_id", sucursal_id)\
+            .eq("tipo", "venta")\
+            .gte("fecha", str(fecha_limite.date()))\
+            .execute()
         
         if result_ingresos.data:
             df_ingresos = pd.DataFrame(result_ingresos.data)
@@ -367,21 +555,41 @@ def obtener_evolucion_historica(_supabase, sucursal_id, meses_atras=12):
             df_ingresos['anio'] = df_ingresos['fecha'].dt.year
             df_ingresos['mes'] = df_ingresos['fecha'].dt.month
             df_ingresos['periodo'] = df_ingresos['fecha'].dt.to_period('M').dt.to_timestamp()
+            
             df_ingresos_agg = df_ingresos.groupby(['anio', 'mes', 'periodo'])['monto'].sum().reset_index()
             df_ingresos_agg.columns = ['anio', 'mes', 'periodo', 'total_ingresos']
         else:
             df_ingresos_agg = pd.DataFrame(columns=['anio', 'mes', 'periodo', 'total_ingresos'])
         
-        df_evolucion = pd.merge(df_gastos_agg, df_ingresos_agg, on=['anio', 'mes', 'periodo'], how='outer').fillna(0)
+        # Merge de gastos e ingresos
+        df_evolucion = pd.merge(
+            df_gastos_agg,
+            df_ingresos_agg,
+            on=['anio', 'mes', 'periodo'],
+            how='outer'
+        ).fillna(0)
+        
+        # Calcular resultado y margen
         df_evolucion['resultado'] = df_evolucion['total_ingresos'] - df_evolucion['total_gastos']
         df_evolucion['margen'] = (df_evolucion['resultado'] / df_evolucion['total_ingresos'] * 100).fillna(0)
-        df_evolucion = df_evolucion.sort_values('periodo', ascending=False).head(meses_atras)
+        
+        # Ordenar por período
+        df_evolucion = df_evolucion.sort_values('periodo', ascending=False)
+        
+        # Limitar a últimos N meses
+        df_evolucion = df_evolucion.head(meses_atras)
+        
         return df_evolucion.sort_values('periodo')
+        
     except Exception as e:
         st.error(f"❌ Error obteniendo evolución histórica: {str(e)}")
         return pd.DataFrame()
 
+
 def limpiar_cache_pl_simples():
+    """
+    Limpia el caché de las consultas de P&L Simples.
+    """
     try:
         obtener_gastos_db.clear()
         obtener_ingresos_mensuales.clear()
@@ -391,7 +599,12 @@ def limpiar_cache_pl_simples():
         st.warning(f"⚠️ No se pudo limpiar el caché: {str(e)}")
         return False
 
+
 def calcular_benchmarks_gastronomia():
+    """
+    Retorna benchmarks estándar del rubro gastronómico
+    Basado en estadísticas de la industria argentina
+    """
     return {
         'ALIMENTOS': {'porcentaje_ideal': 30.0, 'rango_min': 25.0, 'rango_max': 35.0},
         'BEBIDAS': {'porcentaje_ideal': 8.0, 'rango_min': 6.0, 'rango_max': 10.0},
@@ -403,10 +616,19 @@ def calcular_benchmarks_gastronomia():
         'MATERIALES': {'porcentaje_ideal': 3.0, 'rango_min': 2.0, 'rango_max': 5.0}
     }
 
+
 def analizar_composicion_gastos(df_gastos, ingresos_totales):
+    """
+    Analiza la composición de gastos y compara con benchmarks
+    """
+    # Determinar columna de totales
     col_total = 'TOTAL_GASTO' if 'TOTAL_GASTO' in df_gastos.columns else 'total'
     col_rubro = 'Rubro' if 'Rubro' in df_gastos.columns else 'rubro'
+    
+    # Agrupar por rubro
     gastos_por_rubro = df_gastos.groupby(col_rubro)[col_total].sum().sort_values(ascending=False)
+    
+    # Calcular porcentajes sobre ingresos
     total_gastos = gastos_por_rubro.sum()
     
     analisis = {
@@ -421,16 +643,24 @@ def analizar_composicion_gastos(df_gastos, ingresos_totales):
     
     for rubro, gasto in gastos_por_rubro.items():
         porcentaje_real = (gasto / ingresos_totales * 100) if ingresos_totales > 0 else 0
+        
+        # Buscar benchmark
         rubro_upper = str(rubro).upper()
         benchmark = None
         estado = "neutral"
         
+        # Buscar benchmark exacto o parcial
         for key in benchmarks.keys():
             if key in rubro_upper or rubro_upper in key:
                 benchmark = benchmarks[key]
-                if porcentaje_real < benchmark['rango_min']: estado = "bajo"
-                elif porcentaje_real > benchmark['rango_max']: estado = "alto"
-                else: estado = "ok"
+                
+                # Evaluar estado
+                if porcentaje_real < benchmark['rango_min']:
+                    estado = "bajo"
+                elif porcentaje_real > benchmark['rango_max']:
+                    estado = "alto"
+                else:
+                    estado = "ok"
                 break
         
         analisis['rubros'].append({
@@ -443,36 +673,92 @@ def analizar_composicion_gastos(df_gastos, ingresos_totales):
     
     return analisis
 
+
 # ==================== INTERFAZ STREAMLIT ====================
 
 def mostrar_tab_importacion(supabase, sucursales, mes_seleccionado, anio_seleccionado, sucursal_seleccionada):
+    """
+    Tab de importación de gastos desde CSV
+    Soporta múltiples sucursales en un mismo CSV con mapeo automático
+    Las fechas se extraen automáticamente de cada registro del CSV
+    """
     st.subheader("📁 Importar Gastos desde CSV")
-    st.info("💡 **Importación Inteligente**: El sistema detecta automáticamente las sucursales Y las fechas de cada gasto desde el CSV.")
     
+    st.info("💡 **Importación Inteligente**: El sistema detecta automáticamente las sucursales Y las fechas de cada gasto desde el CSV. No necesitas seleccionar mes/año manualmente.")
+    
+    # Crear AMBOS mapeos
     mapeo_manual = obtener_mapeo_manual(supabase)
     mapeo_automatico = crear_mapeo_sucursales(supabase)
     
     if not mapeo_automatico:
-        st.error("❌ No se pudieron cargar las sucursales.")
+        st.error("❌ No se pudieron cargar las sucursales. Verifica la conexión a Supabase.")
         return
     
+    # Mostrar información de mapeo
     with st.expander("🏪 Información de Mapeo"):
-        if mapeo_manual: st.write("✅ **Mapeo Manual Activo**")
-        else: st.write("⚠️ **Mapeo Manual No Configurado**")
+        if mapeo_manual:
+            st.write("✅ **Mapeo Manual Activo** (prioridad alta)")
+            st.write(f"   - {len(set(mapeo_manual.values()))} empresas CSV -> sucursales")
+        else:
+            st.write("⚠️ **Mapeo Manual No Configurado** (solo mapeo automático)")
+        
+        st.write("")
+        st.write("📋 **Sucursales disponibles:**")
+        for nombre, suc_id in mapeo_automatico.items():
+            if ' ' in nombre or '.' in nombre:  # Mostrar solo nombres completos
+                st.write(f"- {nombre} (ID: {suc_id})")
     
-    archivo_gastos = st.file_uploader("Selecciona el archivo CSV de gastos", type=['csv'])
+    # Formulario de importación
+    archivo_gastos = st.file_uploader(
+        "Selecciona el archivo CSV de gastos del mes",
+        type=['csv'],
+        help="Archivo CSV exportado del sistema de facturas de compra"
+    )
     
     if archivo_gastos is not None:
+        # Procesar archivo
         with st.spinner("Procesando archivo CSV..."):
             df_gastos = procesar_archivo_gastos(archivo_gastos)
         
         if df_gastos is not None and len(df_gastos) > 0:
             st.success(f"✅ Archivo procesado: {len(df_gastos)} registros detectados")
             
-            empresas_detectadas = df_gastos['Empresa'].value_counts()
-            col1, col2 = st.columns(2)
-            with col1: st.metric("Total de Empresas en CSV", len(empresas_detectadas))
+            # Analizar períodos en el CSV
+            if 'Fecha' in df_gastos.columns and df_gastos['Fecha'].notna().any():
+                fechas_validas = df_gastos[df_gastos['Fecha'].notna()]['Fecha']
+                fecha_min = fechas_validas.min()
+                fecha_max = fechas_validas.max()
+                
+                periodos = df_gastos[df_gastos['Fecha'].notna()].copy()
+                periodos['periodo'] = periodos['Fecha'].dt.to_period('M')
+                periodos_unicos = periodos['periodo'].unique()
+                
+                st.info(f"📅 **Períodos detectados en el CSV**: {fecha_min.strftime('%d/%m/%Y')} hasta {fecha_max.strftime('%d/%m/%Y')} ({len(periodos_unicos)} mes(es))")
+                
+                # Mostrar resumen por período
+                with st.expander("📊 Ver distribución por período"):
+                    resumen_periodo = periodos.groupby('periodo').size().reset_index(name='registros')
+                    resumen_periodo['periodo_str'] = resumen_periodo['periodo'].astype(str)
+                    st.dataframe(
+                        resumen_periodo[['periodo_str', 'registros']].rename(columns={
+                            'periodo_str': 'Período',
+                            'registros': 'Cantidad de Registros'
+                        }),
+                        hide_index=True
+                    )
             
+            # Analizar sucursales en el CSV
+            st.markdown("---")
+            st.subheader("🔍 Análisis de Sucursales Detectadas")
+            
+            empresas_detectadas = df_gastos['Empresa'].value_counts()
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.metric("Total de Empresas en CSV", len(empresas_detectadas))
+            
+            # Verificar mapeo para cada empresa
             empresas_mapeadas = []
             empresas_sin_mapear = []
             
@@ -481,175 +767,857 @@ def mostrar_tab_importacion(supabase, sucursales, mes_seleccionado, anio_selecci
                 total_empresa = df_gastos[df_gastos['Empresa'] == empresa]['TOTAL_GASTO'].sum()
                 
                 if sucursal_id:
+                    # Encontrar nombre de sucursal
                     nombre_sucursal = next((k for k, v in mapeo_automatico.items() if v == sucursal_id and (' ' in k or '.' in k)), empresa)
-                    empresas_mapeadas.append({'CSV': empresa, 'Sucursal': nombre_sucursal, 'Registros': cantidad, 'Total': total_empresa})
+                    empresas_mapeadas.append({
+                        'CSV': empresa,
+                        'Sucursal': nombre_sucursal,
+                        'Registros': cantidad,
+                        'Total': total_empresa
+                    })
                 else:
-                    empresas_sin_mapear.append({'Empresa': empresa, 'Registros': cantidad, 'Total': total_empresa})
+                    empresas_sin_mapear.append({
+                        'Empresa': empresa,
+                        'Registros': cantidad,
+                        'Total': total_empresa
+                    })
             
-            with col2: st.metric("Empresas Mapeadas ✅", len(empresas_mapeadas))
+            with col2:
+                st.metric("Empresas Mapeadas ✅", len(empresas_mapeadas))
             
+            # Mostrar empresas mapeadas
             if empresas_mapeadas:
                 st.success("✅ **Empresas que se importarán correctamente:**")
                 df_mapeadas = pd.DataFrame(empresas_mapeadas)
-                df_mapeadas['Total'] = df_mapeadas['Total'].apply(lambda x: f"${x:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'))
-                st.dataframe(df_mapeadas, hide_index=True, use_container_width=True)
+                df_mapeadas['Total Formateado'] = df_mapeadas['Total'].apply(
+                    lambda x: f"${x:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+                )
+                st.dataframe(
+                    df_mapeadas[['CSV', 'Sucursal', 'Registros', 'Total Formateado']],
+                    hide_index=True,
+                    use_container_width=True
+                )
             
+            # Mostrar empresas sin mapear
             if empresas_sin_mapear:
                 st.error("⚠️ **Empresas SIN MAPEAR (no se importarán):**")
-                st.dataframe(pd.DataFrame(empresas_sin_mapear), hide_index=True)
-
+                df_sin_mapear = pd.DataFrame(empresas_sin_mapear)
+                df_sin_mapear['Total Formateado'] = df_sin_mapear['Total'].apply(
+                    lambda x: f"${x:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+                )
+                st.dataframe(
+                    df_sin_mapear[['Empresa', 'Registros', 'Total Formateado']],
+                    hide_index=True,
+                    use_container_width=True
+                )
+                
+                st.warning("💡 **Solución**: Crea estas sucursales en el sistema o ajusta los nombres en el CSV para que coincidan.")
+            
+            # Vista previa de datos
+            with st.expander("👁️ Vista previa de primeros 10 registros"):
+                st.dataframe(
+                    df_gastos[['Empresa', 'Fecha', 'Rubro', 'Subrubro', 'Proveedor', 
+                              'NETO', 'IVA_PERCEPCIONES', 'TOTAL_GASTO']].head(10),
+                    hide_index=True
+                )
+            
+            # Verificar si ya existen gastos para alguna sucursal en los períodos del CSV
+            st.markdown("---")
+            st.subheader("⚠️ Verificación de Duplicados")
+            
+            # Obtener períodos únicos del CSV
+            periodos_csv = set()
+            if 'Fecha' in df_gastos.columns:
+                for fecha in df_gastos[df_gastos['Fecha'].notna()]['Fecha']:
+                    periodos_csv.add((fecha.year, fecha.month))
+            
+            gastos_existentes_info = []
+            for empresa_info in empresas_mapeadas:
+                sucursal_id = obtener_sucursal_id_desde_nombre(empresa_info['CSV'], mapeo_manual, mapeo_automatico)
+                if sucursal_id:
+                    for anio, mes in periodos_csv:
+                        gastos_existentes = verificar_gastos_existentes(supabase, sucursal_id, mes, anio)
+                        if gastos_existentes['existe']:
+                            gastos_existentes_info.append({
+                                'sucursal': empresa_info['Sucursal'],
+                                'periodo': f"{mes:02d}/{anio}",
+                                'cantidad': gastos_existentes['cantidad'],
+                                'total': gastos_existentes['total'],
+                                'sucursal_id': sucursal_id,
+                                'mes': mes,
+                                'anio': anio
+                            })
+            
+            if gastos_existentes_info:
+                st.warning("⚠️ **Ya existen gastos para algunos períodos:**")
+                for info in gastos_existentes_info:
+                    st.write(f"- **{info['sucursal']}** ({info['periodo']}): {info['cantidad']} registros (${info['total']:,.2f})".replace(',', 'X').replace('.', ',').replace('X', '.'))
+                
+                st.write("")
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button("🔄 Reemplazar TODOS los gastos existentes", type="secondary"):
+                        with st.spinner("Eliminando gastos existentes..."):
+                            for info in gastos_existentes_info:
+                                eliminar_gastos_periodo(supabase, info['sucursal_id'], info['mes'], info['anio'])
+                            st.success("✅ Gastos eliminados. Puedes importar nuevos datos.")
+                            st.session_state['gastos_eliminados'] = True
+                            st.rerun()
+                
+                with col2:
+                    if st.button("❌ Cancelar y mantener existentes"):
+                        st.info("Operación cancelada. Los gastos existentes se mantienen.")
+                        return
+                
+                if 'gastos_eliminados' not in st.session_state or not st.session_state['gastos_eliminados']:
+                    st.info("⚠️ Debes decidir si reemplazar o cancelar antes de continuar.")
+                    st.stop()
+            
+            # Resumen antes de guardar
+            st.markdown("---")
+            st.subheader("📊 Resumen de la Importación")
+            
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Total Registros", len(df_gastos))
+            with col2:
+                registros_a_importar = sum(e['Registros'] for e in empresas_mapeadas)
+                st.metric("Se Importarán", registros_a_importar)
+            with col3:
+                st.metric("Total Neto", f"${df_gastos['NETO'].sum():,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'))
+            with col4:
+                st.metric("Total General", f"${df_gastos['TOTAL_GASTO'].sum():,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'))
+            
+            # Botón de importación
+            st.markdown("---")
             usuario_actual = st.session_state.get('usuario', {}).get('usuario', 'desconocido')
+            
             puede_importar = len(empresas_mapeadas) > 0
             
-            if st.button("💾 Guardar en Base de Datos", type="primary", disabled=not puede_importar):
-                with st.spinner("Guardando gastos..."):
-                    resultado = guardar_gastos_en_db(supabase, df_gastos, usuario_actual)
-                    if resultado['exitosos'] > 0:
-                        st.success(f"✅ {resultado['exitosos']} registros guardados")
-                        limpiar_cache_pl_simples()
-                    if resultado['duplicados']:
-                        st.warning(f"⚠️ {len(resultado['duplicados'])} registros duplicados omitidos.")
-                    if resultado['errores']:
-                        st.error(f"❌ {len(resultado['errores'])} errores.")
+            if not puede_importar:
+                st.error("❌ No se puede importar porque ninguna empresa fue mapeada correctamente.")
+                st.info("💡 Crea las sucursales en el sistema o ajusta los nombres en el CSV.")
+            else:
+                if st.button("💾 Guardar en Base de Datos", type="primary", use_container_width=True, disabled=not puede_importar):
+                    with st.spinner("Guardando gastos en la base de datos..."):
+                        resultado = guardar_gastos_en_db(
+                            supabase, 
+                            df_gastos,
+                            usuario_actual
+                        )
+                        
+                        if resultado['exitosos'] > 0:
+                            st.success(f"✅ {resultado['exitosos']} registros guardados exitosamente")
+                            
+                            # Mostrar detalle por sucursal
+                            if empresas_mapeadas:
+                                st.info("📊 **Registros guardados por sucursal:**")
+                                for empresa_info in empresas_mapeadas:
+                                    st.write(f"- {empresa_info['Sucursal']}: {empresa_info['Registros']} registros")
+                            
+                            # Limpiar cache y session_state
+                            if 'gastos_eliminados' in st.session_state:
+                                del st.session_state['gastos_eliminados']
+                            
+                            # 🚀 OPTIMIZACIÓN: Limpiar solo caché de P&L (más eficiente que limpiar todo)
+                            limpiar_cache_pl_simples()
+                            
+                            st.info("💡 Los gastos fueron guardados con sus fechas originales del CSV. Ve a 'Análisis del Período' o 'Evolución Histórica'.")
+                        
+                        # Mostrar duplicados agrupados por sucursal
+                        if resultado.get('duplicados'):
+                            # Agrupar duplicados por sucursal
+                            duplicados_por_sucursal = {}
+                            for dup in resultado['duplicados']:
+                                suc_id = dup['sucursal_id']
+                                if suc_id not in duplicados_por_sucursal:
+                                    # Buscar nombre de sucursal
+                                    nombre_suc = next(
+                                        (k for k, v in mapeo_automatico.items() if v == suc_id and (' ' in k or '.' in k)), 
+                                        dup['empresa']
+                                    )
+                                    duplicados_por_sucursal[suc_id] = {
+                                        'nombre': nombre_suc,
+                                        'cantidad': 0
+                                    }
+                                duplicados_por_sucursal[suc_id]['cantidad'] += 1
+                            
+                            # Mostrar mensaje agrupado
+                            st.warning(f"⚠️ **{len(resultado['duplicados'])} registros no se importaron porque ya existen en la BD:**")
+                            for suc_id, info in duplicados_por_sucursal.items():
+                                st.write(f"  • **{info['nombre']}**: {info['cantidad']} registro(s)")
+                            
+                            with st.expander("🔍 Ver detalle de duplicados"):
+                                for dup in resultado['duplicados'][:20]:
+                                    st.write(f"  - Fila {dup['fila']}: {dup['proveedor']} (${dup['total']:,.2f}) - {dup['fecha']}")
+                                if len(resultado['duplicados']) > 20:
+                                    st.write(f"  ... y {len(resultado['duplicados'])-20} más")
+                        
+                        if resultado.get('sin_fecha'):
+                            st.warning(f"⚠️ {len(resultado['sin_fecha'])} registros sin fecha válida (no importados):")
+                            for item in resultado['sin_fecha'][:10]:
+                                st.write(f"  • Fila {item['fila']}: {item['empresa']} - Fecha E: {item.get('fecha_e')} - Fecha C: {item.get('fecha_c')}")
+                            if len(resultado['sin_fecha']) > 10:
+                                st.write(f"  ... y {len(resultado['sin_fecha'])-10} más")
+                        
+                        if resultado['sin_sucursal']:
+                            st.warning(f"⚠️ {len(resultado['sin_sucursal'])} registros sin sucursal mapeada (no importados):")
+                            for item in resultado['sin_sucursal'][:10]:
+                                st.write(f"  • Fila {item['fila']}: {item['empresa']} (${item['total']:,.2f})".replace(',', 'X').replace('.', ',').replace('X', '.'))
+                            if len(resultado['sin_sucursal']) > 10:
+                                st.write(f"  ... y {len(resultado['sin_sucursal'])-10} más")
+                        
+                        if resultado['errores']:
+                            st.error(f"❌ {len(resultado['errores'])} errores durante la importación:")
+                            for error in resultado['errores'][:5]:
+                                st.error(f"  • {error}")
+                            if len(resultado['errores']) > 5:
+                                st.error(f"  ... y {len(resultado['errores'])-5} errores más")
+        
+        else:
+            st.error("❌ No se pudo procesar el archivo de gastos")
+
 
 def mostrar_tab_analisis(supabase, sucursales, mes_seleccionado, anio_seleccionado, sucursal_seleccionada):
+    """
+    Tab de análisis del período actual
+    """
+    # Header con botón de refrescar
     col_header, col_refresh = st.columns([4, 1])
-    with col_header: st.subheader("📊 Análisis del Período Actual")
+    
+    with col_header:
+        st.subheader("📊 Análisis del Período Actual")
+    
     with col_refresh:
-        if st.button("🔄 Refrescar", key="refresh_analisis"):
+        if st.button("🔄 Refrescar", key="refresh_analisis", use_container_width=True, help="Actualizar datos desde la base de datos"):
             limpiar_cache_pl_simples()
+            st.success("✅ Datos actualizados")
             st.rerun()
     
     sucursal_id = sucursal_seleccionada['id'] if sucursal_seleccionada else None
+    sucursal_nombre = sucursal_seleccionada['nombre'] if sucursal_seleccionada else "Todas las sucursales"
     
+    # Obtener datos de la DB (ahora con caché)
     with st.spinner("Cargando datos..."):
         df_gastos = obtener_gastos_db(supabase, mes_seleccionado, anio_seleccionado, sucursal_id)
         df_ingresos = obtener_ingresos_mensuales(supabase, mes_seleccionado, anio_seleccionado, sucursal_id)
     
     if df_gastos.empty:
-        st.warning(f"⚠️ No hay gastos registrados para este período.")
+        st.warning(f"⚠️ No hay gastos registrados para **{sucursal_nombre}** en **{mes_seleccionado}/{anio_seleccionado}**.")
+        st.info("💡 Ve a la pestaña 'Importar Gastos' para cargar datos.")
         return
     
+    # Verificar si los gastos son de sucursales diferentes a la seleccionada
+    if sucursal_seleccionada:
+        sucursales_en_gastos = df_gastos['sucursal_id'].unique()
+        if sucursal_id not in sucursales_en_gastos:
+            st.warning(f"⚠️ Los gastos de este período pertenecen a otras sucursales.")
+            st.info(f"💡 Sucursales con gastos en {mes_seleccionado}/{anio_seleccionado}:")
+            
+            # Mostrar qué sucursales tienen gastos
+            for suc_id in sucursales_en_gastos:
+                suc = next((s for s in sucursales if s['id'] == suc_id), None)
+                if suc:
+                    cantidad = len(df_gastos[df_gastos['sucursal_id'] == suc_id])
+                    st.write(f"   - {suc['nombre']}: {cantidad} registros")
+            
+            st.info("💡 Selecciona una de estas sucursales en el selector de arriba para ver su análisis.")
+            return
+    
+    # Calcular totales
     total_ingresos = df_ingresos['monto'].sum() if not df_ingresos.empty else 0
     total_gastos = df_gastos['total'].sum()
     resultado = total_ingresos - total_gastos
     margen = (resultado / total_ingresos * 100) if total_ingresos > 0 else 0
     
+    # Métricas principales
     col1, col2, col3, col4 = st.columns(4)
-    with col1: st.metric("Ingresos Totales", f"${total_ingresos:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'))
-    with col2: st.metric("Gastos Totales", f"${total_gastos:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'), delta=f"-{(total_gastos/total_ingresos*100):.1f}%" if total_ingresos>0 else None, delta_color="inverse")
-    with col3: st.metric("Resultado", f"${resultado:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'), delta=f"{margen:.1f}%")
-    with col4: st.metric("Estado", "🟢 Excelente" if margen>=15 else ("🟡 Bueno" if margen>=10 else ("🟠 Ajustado" if margen>=5 else "🔴 Crítico")))
     
+    with col1:
+        st.metric(
+            "Ingresos Totales",
+            f"${total_ingresos:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+        )
+    
+    with col2:
+        st.metric(
+            "Gastos Totales",
+            f"${total_gastos:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'),
+            delta=f"-{(total_gastos/total_ingresos*100):.1f}%" if total_ingresos > 0 else None,
+            delta_color="inverse"
+        )
+    
+    with col3:
+        st.metric(
+            "Resultado",
+            f"${resultado:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'),
+            delta=f"{margen:.1f}%",
+            delta_color="normal" if resultado >= 0 else "inverse"
+        )
+    
+    with col4:
+        if margen >= 15:
+            st.metric("Estado", "🟢 Excelente", delta=f"{margen:.1f}%")
+        elif margen >= 10:
+            st.metric("Estado", "🟡 Bueno", delta=f"{margen:.1f}%")
+        elif margen >= 5:
+            st.metric("Estado", "🟠 Ajustado", delta=f"{margen:.1f}%")
+        else:
+            st.metric("Estado", "🔴 Crítico", delta=f"{margen:.1f}%")
+    
+    # Análisis de composición
     st.markdown("---")
     st.subheader("📊 Composición del Gasto")
+    
     analisis = analizar_composicion_gastos(df_gastos, total_ingresos)
+    
     df_analisis = pd.DataFrame(analisis['rubros'])
     
     if not df_analisis.empty:
+        # Formatear para visualización
         df_display = df_analisis.copy()
-        df_display['Gasto'] = df_display['gasto'].apply(lambda x: f"${x:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'))
+        df_display['Gasto'] = df_display['gasto'].apply(
+            lambda x: f"${x:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+        )
         df_display['% Real'] = df_display['porcentaje_real'].apply(lambda x: f"{x:.1f}%")
-        df_display['Estado'] = df_display['estado'].apply(lambda x: "🟢 OK" if x == "ok" else ("🔴 Alto" if x == "alto" else "🟡 Bajo"))
-        st.dataframe(df_display[['rubro', 'Gasto', '% Real', 'Estado']], hide_index=True, use_container_width=True)
+        df_display['% Ideal'] = df_display['benchmark'].apply(
+            lambda x: f"{x['porcentaje_ideal']:.1f}%" if x else "N/A"
+        )
+        df_display['Rango Óptimo'] = df_display['benchmark'].apply(
+            lambda x: f"{x['rango_min']:.1f}% - {x['rango_max']:.1f}%" if x else "N/A"
+        )
+        df_display['Estado'] = df_display['estado'].apply(
+            lambda x: "🟢 OK" if x == "ok" else ("🔴 Alto" if x == "alto" else ("🟡 Bajo" if x == "bajo" else "⚪"))
+        )
+        
+        st.dataframe(
+            df_display[['rubro', 'Gasto', '% Real', '% Ideal', 'Rango Óptimo', 'Estado']].rename(columns={
+                'rubro': 'Rubro'
+            }),
+            hide_index=True,
+            use_container_width=True
+        )
+        
+        # Alertas
+        st.markdown("---")
+        st.subheader("💡 Alertas y Recomendaciones")
+        
+        alertas = []
+        for item in analisis['rubros']:
+            if item['estado'] == 'alto':
+                alertas.append({
+                    'tipo': '⚠️ ALERTA',
+                    'mensaje': f"**{item['rubro']}** está en {item['porcentaje_real']:.1f}% (ideal: {item['benchmark']['porcentaje_ideal']:.1f}%)",
+                    'severidad': 'warning'
+                })
+            elif item['estado'] == 'bajo':
+                alertas.append({
+                    'tipo': '💡 OPORTUNIDAD',
+                    'mensaje': f"**{item['rubro']}** está en {item['porcentaje_real']:.1f}% (ideal: {item['benchmark']['porcentaje_ideal']:.1f}%)",
+                    'severidad': 'info'
+                })
+        
+        if alertas:
+            for alerta in alertas:
+                if alerta['severidad'] == 'warning':
+                    st.warning(f"{alerta['tipo']}: {alerta['mensaje']}")
+                else:
+                    st.info(f"{alerta['tipo']}: {alerta['mensaje']}")
+        else:
+            st.success("✅ Todos los rubros están dentro de los rangos óptimos")
+        
+        # Gráficos
+        st.markdown("---")
+        st.subheader("📈 Visualizaciones")
+        
+        # Verificar si plotly está disponible
+        try:
+            import plotly.express as px
+            import plotly.graph_objects as go
+            plotly_disponible = True
+        except ImportError:
+            plotly_disponible = False
+            st.warning("⚠️ **Plotly no está instalado**. Los gráficos no están disponibles.")
+            st.info("💡 Para ver gráficos, instala plotly: `pip install plotly --break-system-packages`")
+        
+        if plotly_disponible:
+            tab1, tab2 = st.tabs(["Composición de Gastos", "Comparativa con Benchmarks"])
+            
+            with tab1:
+                fig = px.pie(
+                    df_analisis,
+                    values='gasto',
+                    names='rubro',
+                    title='Distribución de Gastos por Rubro'
+                )
+                st.plotly_chart(fig, use_container_width=True)
+            
+            with tab2:
+                df_comp = df_analisis[df_analisis['benchmark'].notna()].copy()
+                
+                if not df_comp.empty:
+                    fig = go.Figure()
+                    
+                    fig.add_trace(go.Bar(
+                        x=df_comp['rubro'],
+                        y=df_comp['porcentaje_real'],
+                        name='% Real',
+                        marker_color='lightblue'
+                    ))
+                    
+                    fig.add_trace(go.Bar(
+                        x=df_comp['rubro'],
+                        y=df_comp['benchmark'].apply(lambda x: x['porcentaje_ideal']),
+                        name='% Ideal',
+                        marker_color='lightgreen'
+                    ))
+                    
+                    fig.update_layout(
+                        title='Comparativa: Real vs. Ideal (% sobre Ingresos)',
+                        xaxis_title='Rubro',
+                        yaxis_title='Porcentaje',
+                        barmode='group'
+                    )
+                    
+                    st.plotly_chart(fig, use_container_width=True)
+        
+        # Exportar
+        st.markdown("---")
+        if st.button("📥 Generar Reporte Excel", type="primary"):
+            with st.spinner("Generando reporte..."):
+                meses = {1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 5: "Mayo", 6: "Junio",
+                        7: "Julio", 8: "Agosto", 9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"}
+                
+                sucursal_nombre = sucursal_seleccionada['nombre'] if sucursal_seleccionada else "Todas"
+                nombre_archivo = f"PL_Simple_{meses[mes_seleccionado]}_{anio_seleccionado}_{sucursal_nombre}.xlsx"
+                
+                buffer = BytesIO()
+                
+                with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+                    # Hoja 1: Resumen
+                    resumen_exec = pd.DataFrame([{
+                        'Período': f"{meses[mes_seleccionado]} {anio_seleccionado}",
+                        'Sucursal': sucursal_nombre,
+                        'Ingresos': total_ingresos,
+                        'Gastos': total_gastos,
+                        'Resultado': resultado,
+                        'Margen %': margen
+                    }])
+                    resumen_exec.to_excel(writer, sheet_name='Resumen Ejecutivo', index=False)
+                    
+                    # Hoja 2: Composición
+                    df_display.to_excel(writer, sheet_name='Composición Gastos', index=False)
+                    
+                    # Hoja 3: Detalle Gastos
+                    df_gastos.to_excel(writer, sheet_name='Detalle Gastos', index=False)
+                    
+                    # Hoja 4: Detalle Ingresos
+                    if not df_ingresos.empty:
+                        df_ingresos.to_excel(writer, sheet_name='Detalle Ingresos', index=False)
+                
+                st.success("✅ Reporte generado exitosamente")
+                
+                # Preparar el buffer para descarga
+                buffer.seek(0)
+                
+                st.download_button(
+                    label="⬇️ Descargar Reporte Excel",
+                    data=buffer,
+                    file_name=nombre_archivo,
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+
 
 def mostrar_tab_evolucion(supabase, sucursales, sucursal_seleccionada):
+    """
+    Tab de evolución histórica
+    """
+    # Header con botón de refrescar
     col_header, col_refresh = st.columns([4, 1])
-    with col_header: st.subheader("📈 Evolución Histórica")
+    
+    with col_header:
+        st.subheader("📈 Evolución Histórica")
+    
     with col_refresh:
-        if st.button("🔄 Refrescar", key="refresh_evolucion"):
+        if st.button("🔄 Refrescar", key="refresh_evolucion", use_container_width=True, help="Actualizar datos desde la base de datos"):
             limpiar_cache_pl_simples()
+            st.success("✅ Datos actualizados")
             st.rerun()
     
     if sucursal_seleccionada is None:
         st.warning("⚠️ Selecciona una sucursal para ver su evolución histórica")
         return
     
-    meses_atras = st.slider("Meses a mostrar", 3, 24, 12)
-    with st.spinner("Cargando evolución histórica..."):
-        df_evolucion = obtener_evolucion_historica(supabase, sucursal_seleccionada['id'], meses_atras)
+    sucursal_id = sucursal_seleccionada['id']
     
-    if not df_evolucion.empty:
-        st.markdown("### 📊 Tabla de Evolución")
-        df_display = df_evolucion.copy()
-        df_display['Período'] = df_display['periodo'].dt.strftime('%Y-%m')
-        for col in ['total_ingresos', 'total_gastos', 'resultado']:
-            df_display[col] = df_display[col].apply(lambda x: f"${x:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'))
-        df_display['Margen %'] = df_display['margen'].apply(lambda x: f"{x:.1f}%")
-        st.dataframe(df_display[['Período', 'total_ingresos', 'total_gastos', 'resultado', 'Margen %']], hide_index=True, use_container_width=True)
+    # Selector de meses a mostrar
+    meses_atras = st.slider("Meses a mostrar", min_value=3, max_value=24, value=12, step=1)
+    
+    # Obtener datos (ahora con caché)
+    with st.spinner("Cargando evolución histórica..."):
+        df_evolucion = obtener_evolucion_historica(supabase, sucursal_id, meses_atras)
+    
+    if df_evolucion.empty:
+        st.warning("⚠️ No hay datos históricos suficientes para esta sucursal")
+        return
+    
+    # Tabla de evolución
+    st.markdown("### 📊 Tabla de Evolución")
+    
+    df_display = df_evolucion.copy()
+    df_display['Período'] = df_display['periodo'].dt.strftime('%Y-%m')
+    df_display['Ingresos'] = df_display['total_ingresos'].apply(
+        lambda x: f"${x:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+    )
+    df_display['Gastos'] = df_display['total_gastos'].apply(
+        lambda x: f"${x:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+    )
+    df_display['Resultado'] = df_display['resultado'].apply(
+        lambda x: f"${x:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+    )
+    df_display['Margen %'] = df_display['margen'].apply(lambda x: f"{x:.1f}%")
+    
+    st.dataframe(
+        df_display[['Período', 'Ingresos', 'Gastos', 'Resultado', 'Margen %']],
+        hide_index=True,
+        use_container_width=True
+    )
+    
+    # Gráficos de tendencia
+    st.markdown("---")
+    st.markdown("### 📈 Gráficos de Tendencia")
+    
+    # Verificar si plotly está disponible
+    try:
+        import plotly.graph_objects as go
+        plotly_disponible = True
+    except ImportError:
+        plotly_disponible = False
+        st.warning("⚠️ **Plotly no está instalado**. Los gráficos no están disponibles.")
+        st.info("💡 Para ver gráficos, instala plotly: `pip install plotly --break-system-packages`")
+    
+    if plotly_disponible:
+        # Gráfico 1: Ingresos vs Gastos
+        fig1 = go.Figure()
+        
+        fig1.add_trace(go.Scatter(
+            x=df_evolucion['periodo'],
+            y=df_evolucion['total_ingresos'],
+            mode='lines+markers',
+            name='Ingresos',
+            line=dict(color='green', width=2),
+            marker=dict(size=8)
+        ))
+        
+        fig1.add_trace(go.Scatter(
+            x=df_evolucion['periodo'],
+            y=df_evolucion['total_gastos'],
+            mode='lines+markers',
+            name='Gastos',
+            line=dict(color='red', width=2),
+            marker=dict(size=8)
+        ))
+        
+        fig1.update_layout(
+            title='Evolución de Ingresos vs. Gastos',
+            xaxis_title='Período',
+            yaxis_title='Monto ($)',
+            hovermode='x unified'
+        )
+        
+        st.plotly_chart(fig1, use_container_width=True)
+        
+        # Gráfico 2: Margen
+        fig2 = go.Figure()
+        
+        # Color según margen
+        colors = ['green' if m >= 10 else 'orange' if m >= 5 else 'red' for m in df_evolucion['margen']]
+        
+        fig2.add_trace(go.Bar(
+            x=df_evolucion['periodo'],
+            y=df_evolucion['margen'],
+            name='Margen %',
+            marker_color=colors
+        ))
+        
+        # Línea de referencia en 10%
+        fig2.add_hline(y=10, line_dash="dash", line_color="gray", annotation_text="Meta: 10%")
+        
+        fig2.update_layout(
+            title='Evolución del Margen de Ganancia',
+            xaxis_title='Período',
+            yaxis_title='Margen (%)',
+            hovermode='x unified'
+        )
+        
+        st.plotly_chart(fig2, use_container_width=True)
+    
+    # Estadísticas
+    st.markdown("---")
+    st.markdown("### 📊 Estadísticas del Período Analizado")
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric(
+            "Margen Promedio",
+            f"{df_evolucion['margen'].mean():.1f}%"
+        )
+    
+    with col2:
+        mejor_mes = df_evolucion.loc[df_evolucion['margen'].idxmax()]
+        st.metric(
+            "Mejor Mes",
+            mejor_mes['periodo'].strftime('%Y-%m'),
+            delta=f"{mejor_mes['margen']:.1f}%"
+        )
+    
+    with col3:
+        peor_mes = df_evolucion.loc[df_evolucion['margen'].idxmin()]
+        st.metric(
+            "Peor Mes",
+            peor_mes['periodo'].strftime('%Y-%m'),
+            delta=f"{peor_mes['margen']:.1f}%",
+            delta_color="inverse"
+        )
+    
+    with col4:
+        # Tendencia
+        tendencia = "📈 Mejorando" if df_evolucion['margen'].iloc[-1] > df_evolucion['margen'].iloc[0] else "📉 Decreciendo"
+        st.metric(
+            "Tendencia",
+            tendencia
+        )
 
-# ==================== ESTADO DE RESULTADO GRANULAR ====================
+
+# ================================================================================
+# ESTADO DE RESULTADO GRANULAR (AQUÍ ESTÁ LA MODIFICACIÓN ESTÉTICA)
+# ================================================================================
 
 def cargar_mapeo_erg_desde_excel(supabase, archivo_excel):
+    """
+    Carga el mapeo de Estado de Resultado Granular desde Excel a Supabase.
+    """
     try:
+        # Leer hoja "Conjunto Datos"
         df_mapeo = pd.read_excel(archivo_excel, sheet_name="Conjunto Datos")
-        grupos = {1: [1, 2, 3, 4], 2: [5, 6], 3: [7, 8], 4: [9, 10, 11], 5: [12, 18], 6: [19], 7: [13, 14, 15, 16, 17]}
-        cod_inf_to_grupo = {c: g for g, cods in grupos.items() for c in cods}
         
+        # Definir grupos para subtotales (basado en la estructura del informe)
+        grupos = {
+            1: [1, 2, 3, 4],      # CMC, Sueldos, Cargas sociales, Sindicatos
+            2: [5, 6],             # Alquiler, Servicios
+            3: [7, 8],             # Honorarios, Publicidad
+            4: [9, 10, 11],        # Materiales, Mantenimiento, Bienes de uso
+            5: [12, 18],           # Royalties, Servicios admin
+            6: [19],               # Retiros
+            7: [13, 14, 15, 16, 17]  # Gastos financieros e impuestos
+        }
+        
+        # Crear diccionario cod_inf -> orden_grupo
+        cod_inf_to_grupo = {}
+        for grupo, cod_infs in grupos.items():
+            for cod_inf in cod_infs:
+                cod_inf_to_grupo[cod_inf] = grupo
+        
+        # Procesar cada fila del mapeo
         registros = []
-        for _, row in df_mapeo.iterrows():
+        
+        for idx, row in df_mapeo.iterrows():
             cod_inf = int(row['Cod_Inf'])
             item = str(row['Item']).strip()
             orden_grupo = cod_inf_to_grupo.get(cod_inf, 1)
+            
+            # Recopilar todos los subrubros
             for col in df_mapeo.columns:
-                if 'Subrubro' in col and pd.notna(row[col]):
-                    registros.append({'cod_inf': cod_inf, 'item': item, 'subrubro': str(row[col]).strip().upper(), 'orden_grupo': orden_grupo})
+                if 'Subrubro' in col:
+                    subrubro = row[col]
+                    if pd.notna(subrubro) and str(subrubro).strip() != '':
+                        registros.append({
+                            'cod_inf': cod_inf,
+                            'item': item,
+                            'subrubro': str(subrubro).strip().upper(),
+                            'orden_grupo': orden_grupo
+                        })
         
-        try: supabase.table("mapeo_estado_resultado_granular").delete().neq('id', 0).execute()
-        except: pass
+        # Limpiar tabla existente
+        try:
+            supabase.table("mapeo_estado_resultado_granular")\
+                .delete()\
+                .neq('id', 0)\
+                .execute()
+        except:
+            pass
         
-        if registros: supabase.table("mapeo_estado_resultado_granular").insert(registros).execute()
-        return {'exitoso': True, 'mensaje': f"✅ {len(registros)} relaciones cargadas"}
+        # Insertar registros en batch
+        if registros:
+            supabase.table("mapeo_estado_resultado_granular")\
+                .insert(registros)\
+                .execute()
+        
+        return {
+            'exitoso': True,
+            'registros': len(registros),
+            'items': len(df_mapeo),
+            'mensaje': f"✅ {len(registros)} relaciones cargadas ({len(df_mapeo)} items)"
+        }
+        
     except Exception as e:
-        return {'exitoso': False, 'mensaje': f"❌ Error: {str(e)}"}
+        return {
+            'exitoso': False,
+            'registros': 0,
+            'items': 0,
+            'mensaje': f"❌ Error: {str(e)}"
+        }
 
-@st.cache_data(ttl=300)
+
+@st.cache_data(ttl=300)  # Cachear 5 minutos
 def obtener_mapeo_erg(_supabase):
+    """
+    Obtiene el mapeo ERG desde Supabase.
+    """
     try:
-        result = _supabase.table("mapeo_estado_resultado_granular").select("*").execute()
+        result = _supabase.table("mapeo_estado_resultado_granular")\
+            .select("*")\
+            .execute()
+        
         if result.data:
             df = pd.DataFrame(result.data)
             df['subrubro'] = df['subrubro'].str.upper().str.strip()
             return df
+        else:
+            return pd.DataFrame()
+            
+    except Exception as e:
+        st.error(f"❌ Error obteniendo mapeo: {str(e)}")
         return pd.DataFrame()
-    except: return pd.DataFrame()
+
 
 def agrupar_gastos_erg(df_gastos, df_mapeo):
-    if df_gastos.empty or df_mapeo.empty: return pd.DataFrame()
-    df_gastos['subrubro_norm'] = df_gastos['subrubro'].str.upper().str.strip()
-    df_merged = df_gastos.merge(df_mapeo[['cod_inf', 'item', 'subrubro', 'orden_grupo']], left_on='subrubro_norm', right_on='subrubro', how='left')
-    df_agrupado = df_merged.groupby(['cod_inf', 'item', 'orden_grupo']).agg({'total': 'sum'}).reset_index()
-    return df_agrupado[df_agrupado['cod_inf'].notna()].sort_values('cod_inf')
+    """
+    Agrupa gastos según el mapeo ERG.
+    """
+    if df_gastos.empty or df_mapeo.empty:
+        return pd.DataFrame()
+    
+    try:
+        # Normalizar subrubros
+        df_gastos['subrubro_norm'] = df_gastos['subrubro'].str.upper().str.strip()
+        
+        # Merge con mapeo
+        df_merged = df_gastos.merge(
+            df_mapeo[['cod_inf', 'item', 'subrubro', 'orden_grupo']],
+            left_on='subrubro_norm',
+            right_on='subrubro',
+            how='left'
+        )
+        
+        # Agrupar por cod_inf, item, orden_grupo
+        df_agrupado = df_merged.groupby(['cod_inf', 'item', 'orden_grupo']).agg({
+            'total': 'sum'
+        }).reset_index()
+        
+        # Eliminar filas sin mapeo (cod_inf nulo)
+        df_agrupado = df_agrupado[df_agrupado['cod_inf'].notna()]
+        
+        # Ordenar por cod_inf
+        df_agrupado = df_agrupado.sort_values('cod_inf')
+        
+        return df_agrupado
+        
+    except Exception as e:
+        st.error(f"❌ Error agrupando gastos: {str(e)}")
+        return pd.DataFrame()
+
 
 def generar_estado_resultado_granular(df_gastos_agrupados, total_ingresos, sucursal_nombre, mes, anio):
+    """
+    Genera el Estado de Resultado Granular con estructura jerárquica.
+    """
     reporte = []
     
-    # Header Info (para usar en el renderer)
-    reporte.append({'tipo': 'info_meta', 'descripcion': 'Local', 'valor': sucursal_nombre})
-    reporte.append({'tipo': 'info_meta', 'descripcion': 'Período', 'valor': f"{mes:02d}/{anio}"})
-
-    # Ingresos
-    reporte.append({'tipo': 'seccion', 'descripcion': 'VENTAS / INGRESOS', 'monto': None})
-    reporte.append({'tipo': 'item', 'descripcion': 'Salon', 'monto': total_ingresos})
-    reporte.append({'tipo': 'item', 'descripcion': 'Delivery', 'monto': 0})
-    reporte.append({'tipo': 'item', 'descripcion': 'Distribuidora/Otros', 'monto': 0})
-    reporte.append({'tipo': 'total', 'descripcion': 'TOTAL INGRESOS', 'monto': total_ingresos})
+    # Header
+    reporte.append({
+        'tipo': 'titulo',
+        'descripcion': 'Estado de Resultados',
+        'monto': None
+    })
+    
+    # Ventas
+    reporte.append({
+        'tipo': 'seccion',
+        'descripcion': 'VENTAS / INGRESOS',
+        'monto': None
+    })
+    
+    reporte.append({
+        'tipo': 'item',
+        'descripcion': 'Salon',
+        'monto': total_ingresos
+    })
+    
+    reporte.append({
+        'tipo': 'item',
+        'descripcion': 'Delivery',
+        'monto': 0
+    })
+    
+    reporte.append({
+        'tipo': 'item',
+        'descripcion': 'Distribuidora/Otros',
+        'monto': 0
+    })
+    
+    reporte.append({
+        'tipo': 'total',
+        'descripcion': 'TOTAL INGRESOS',
+        'monto': total_ingresos
+    })
     
     # Egresos
-    reporte.append({'tipo': 'seccion', 'descripcion': 'COMPRAS / EGRESOS', 'monto': None})
+    reporte.append({
+        'tipo': 'seccion',
+        'descripcion': 'COMPRAS / EGRESOS',
+        'monto': None
+    })
+    
+    # Procesar por grupos (1-7)
     total_compras = 0
+    
     for grupo in range(1, 8):
         df_grupo = df_gastos_agrupados[df_gastos_agrupados['orden_grupo'] == grupo]
+        
         if not df_grupo.empty:
             subtotal_grupo = 0
-            for _, row in df_grupo.iterrows():
-                reporte.append({'tipo': 'item_gasto', 'descripcion': row['item'], 'monto': row['total']})
-                subtotal_grupo += row['total']
-            reporte.append({'tipo': 'subtotal', 'descripcion': 'Subtotal Grupo', 'monto': subtotal_grupo})
+            
+            # Items del grupo
+            for idx, row in df_grupo.iterrows():
+                monto = row['total']
+                subtotal_grupo += monto
+                
+                reporte.append({
+                    'tipo': 'item_gasto',
+                    'descripcion': row['item'],
+                    'monto': monto,
+                    'cod_inf': row['cod_inf']
+                })
+            
+            # Subtotal del grupo
+            reporte.append({
+                'tipo': 'subtotal',
+                'descripcion': 'Subtotal Grupo',
+                'monto': subtotal_grupo
+            })
+            
             total_compras += subtotal_grupo
     
+    # Resultado
     resultado_operativo = total_ingresos - total_compras
-    reporte.append({'tipo': 'resultado', 'descripcion': 'RESULTADO OPERATIVO', 'monto': resultado_operativo})
+    
+    reporte.append({
+        'tipo': 'resultado',
+        'descripcion': 'RESULTADO OPERATIVO ESTIMADO',
+        'monto': resultado_operativo
+    })
     
     return reporte
 
@@ -799,84 +1767,246 @@ def renderizar_reporte_html(reporte, sucursal_nombre, mes, anio):
     
     return html
 
+# ============================================================================
+# FUNCIÓN 5: Tab - Estado de Resultado Granular (ACTUALIZADA)
+# ============================================================================
+
 def mostrar_tab_estado_resultado_granular(supabase, sucursales, mes_seleccionado, anio_seleccionado, sucursal_seleccionada):
+    """
+    Tab de Estado de Resultado Granular
+    """
+    # Header
     col_header, col_refresh = st.columns([4, 1])
-    with col_header: st.subheader("📊 Estado de Resultado Granular")
+    
+    with col_header:
+        st.subheader("📊 Estado de Resultado Granular")
+    
     with col_refresh:
-        if st.button("🔄 Refrescar", key="refresh_erg"):
+        if st.button("🔄 Refrescar", key="refresh_erg", use_container_width=True):
             st.cache_data.clear()
+            st.success("✅ Datos actualizados")
             st.rerun()
     
     sucursal_id = sucursal_seleccionada['id'] if sucursal_seleccionada else None
     sucursal_nombre = sucursal_seleccionada['nombre'] if sucursal_seleccionada else "Todas las sucursales"
     
+    # ===========================================================================
+    # VERIFICAR MAPEO
+    # ===========================================================================
     df_mapeo = obtener_mapeo_erg(supabase)
+    
     if df_mapeo.empty:
         st.warning("⚠️ **No hay mapeo configurado**")
-        with st.expander("⚙️ Cargar Mapeo desde Excel"):
-            archivo_mapeo = st.file_uploader("Selecciona el archivo Excel", type=['xlsx', 'xls'])
-            if archivo_mapeo and st.button("📥 Cargar Mapeo"):
-                res = cargar_mapeo_erg_desde_excel(supabase, archivo_mapeo)
-                if res['exitoso']: st.success(res['mensaje']); st.cache_data.clear(); st.rerun()
-                else: st.error(res['mensaje'])
+        st.info("💡 Primero debes cargar el mapeo desde el archivo Excel.")
+        
+        with st.expander("⚙️ Cargar Mapeo desde Excel", expanded=True):
+            st.markdown("### 📤 Subir archivo de mapeo")
+            st.markdown("""
+            El archivo debe tener una hoja llamada **"Conjunto Datos"** con:
+            - **Cod_Inf**: Código del item
+            - **Item**: Nombre del item para el informe
+            - **Subrubros**: Columnas con los subrubros que pertenecen a cada item
+            """)
+            
+            archivo_mapeo = st.file_uploader(
+                "Selecciona el archivo Excel",
+                type=['xlsx', 'xls'],
+                key="upload_mapeo_erg"
+            )
+            
+            if archivo_mapeo:
+                if st.button("📥 Cargar Mapeo", type="primary", use_container_width=True):
+                    with st.spinner("Cargando mapeo..."):
+                        resultado = cargar_mapeo_erg_desde_excel(supabase, archivo_mapeo)
+                        
+                        if resultado['exitoso']:
+                            st.success(resultado['mensaje'])
+                            st.cache_data.clear()
+                            st.rerun()
+                        else:
+                            st.error(resultado['mensaje'])
+        
         return
     
+    # ===========================================================================
+    # MOSTRAR INFO DEL MAPEO
+    # ===========================================================================
+    with st.expander("ℹ️ Información del Mapeo"):
+        items_unicos = df_mapeo.groupby('item').agg({
+            'cod_inf': 'first',
+            'subrubro': lambda x: list(x)
+        }).reset_index().sort_values('cod_inf')
+        
+        st.write(f"**Total items configurados:** {len(items_unicos)}")
+        st.write(f"**Total subrubros mapeados:** {len(df_mapeo)}")
+        
+        st.markdown("### Items Configurados:")
+        for idx, row in items_unicos.iterrows():
+            cod_inf = row['cod_inf']
+            item = row['item']
+            subrubros = sorted(row['subrubro'])
+            st.write(f"**{cod_inf}. {item}** ({len(subrubros)} subrubros)")
+            st.caption(", ".join(subrubros))
+    
+    # ===========================================================================
+    # OBTENER DATOS
+    # ===========================================================================
     with st.spinner("Cargando datos..."):
         df_gastos = obtener_gastos_db(supabase, mes_seleccionado, anio_seleccionado, sucursal_id)
         df_ingresos = obtener_ingresos_mensuales(supabase, mes_seleccionado, anio_seleccionado, sucursal_id)
     
     if df_gastos.empty:
-        st.warning(f"⚠️ No hay gastos para el período seleccionado.")
+        st.warning(f"⚠️ No hay gastos para **{sucursal_nombre}** en **{mes_seleccionado}/{anio_seleccionado}**")
+        st.info("💡 Ve a 'Importar Gastos' para cargar datos.")
         return
     
+    # Total ingresos
     total_ingresos = df_ingresos['monto'].sum() if not df_ingresos.empty else 0
+    
+    # ===========================================================================
+    # AGRUPAR GASTOS
+    # ===========================================================================
     df_gastos_agrupados = agrupar_gastos_erg(df_gastos, df_mapeo)
     
     if df_gastos_agrupados.empty:
-        st.warning("⚠️ No se pudieron agrupar los gastos según el mapeo.")
+        st.warning("⚠️ No se pudieron agrupar los gastos según el mapeo")
+        st.info("💡 Verifica que los subrubros de tus gastos coincidan con el mapeo configurado")
+        
+        # Mostrar subrubros que no tienen mapeo
         subrubros_sin_mapeo = set(df_gastos['subrubro'].str.upper().str.strip()) - set(df_mapeo['subrubro'])
+        
         if subrubros_sin_mapeo:
             with st.expander("🔍 Subrubros sin mapeo"):
-                for s in sorted(subrubros_sin_mapeo): st.write(f"- {s}")
+                st.write("Los siguientes subrubros no están en el mapeo:")
+                for subrubro in sorted(subrubros_sin_mapeo):
+                    st.write(f"- {subrubro}")
+        
         return
     
-    # Generar estructura de datos
-    reporte = generar_estado_resultado_granular(df_gastos_agrupados, total_ingresos, sucursal_nombre, mes_seleccionado, anio_seleccionado)
+    # ===========================================================================
+    # GENERAR REPORTE (DATOS)
+    # ===========================================================================
+    reporte = generar_estado_resultado_granular(
+        df_gastos_agrupados,
+        total_ingresos,
+        sucursal_nombre,
+        mes_seleccionado,
+        anio_seleccionado
+    )
     
-    # RENDERIZAR REPORTE EJECUTIVO (HTML)
+    # ===========================================================================
+    # RENDERIZAR REPORTE VISUAL (NUEVO DISEÑO EJECUTIVO)
+    # ===========================================================================
     st.markdown("---")
+    
     html_reporte = renderizar_reporte_html(reporte, sucursal_nombre, mes_seleccionado, anio_seleccionado)
     st.markdown(html_reporte, unsafe_allow_html=True)
     
-    # Botón Descargar Excel
+    # ===========================================================================
+    # BOTÓN DESCARGAR EXCEL
+    # ===========================================================================
     st.markdown("---")
-    if st.button("📥 Descargar Reporte (Excel)", type="primary"):
+    
+    if st.button("📥 Descargar Estado de Resultado (Excel)", type="primary"):
         with st.spinner("Generando Excel..."):
-            df_reporte = pd.DataFrame([{'Descripción': f['descripcion'], 'Monto': f['monto']} for f in reporte if f['tipo'] not in ['info_meta']])
+            # Convertir reporte a DataFrame
+            df_reporte = pd.DataFrame([
+                {
+                    'Descripción': f['descripcion'],
+                    'Monto': f['monto'] if f['monto'] is not None else ''
+                }
+                for f in reporte
+            ])
+            
+            # Generar Excel
             buffer = BytesIO()
             with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
                 df_reporte.to_excel(writer, sheet_name='Estado Resultado', index=False)
+            
             buffer.seek(0)
-            st.download_button("⬇️ Descargar Excel", data=buffer, file_name=f"ER_Granular_{sucursal_nombre}_{mes_seleccionado}_{anio_seleccionado}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            
+            nombre_archivo = f"Estado_Resultado_Granular_{sucursal_nombre}_{mes_seleccionado:02d}_{anio_seleccionado}.xlsx"
+            
+            st.download_button(
+                label="⬇️ Descargar Excel",
+                data=buffer,
+                file_name=nombre_archivo,
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+
+
+# ============================================================================
+
+# ================================================================================
 
 def main(supabase):
-    st.header("📊 P&L Simples - Informe Mensual")
-    st.caption("v2.3 - Reporte Ejecutivo")
+    """
+    Función principal del módulo P&L Simples v2.3
+    """
+    st.header("📊 P&L Simples - Informe Mensual de Resultados")
+    st.caption("v2.3 - Con persistencia, evolución histórica y mapeo automático de fechas")
+    st.markdown("---")
     
-    meses = {1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 5: "Mayo", 6: "Junio", 7: "Julio", 8: "Agosto", 9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"}
+    # Configuración
     col1, col2, col3 = st.columns(3)
-    with col1: mes_sel = st.selectbox("📅 Mes", list(meses.keys()), format_func=lambda x: meses[x], index=datetime.now().month - 1)
-    with col2: anio_sel = st.selectbox("📅 Año", range(datetime.now().year - 2, datetime.now().year + 1), index=2)
-    with col3:
-        try: sucursales = supabase.table("sucursales").select("*").execute().data
-        except: sucursales = []
-        sucursal_sel = st.selectbox("🏪 Sucursal", [None] + sucursales, format_func=lambda x: "Todas" if x is None else x['nombre'])
     
-    tab1, tab2, tab3, tab4 = st.tabs(["📁 Importar", "📊 Análisis", "📈 Evolución", "📄 Reporte Granular"])
-    with tab1: mostrar_tab_importacion(supabase, sucursales, mes_sel, anio_sel, sucursal_sel)
-    with tab2: mostrar_tab_analisis(supabase, sucursales, mes_sel, anio_sel, sucursal_sel)
-    with tab3: mostrar_tab_evolucion(supabase, sucursales, sucursal_sel)
-    with tab4: mostrar_tab_estado_resultado_granular(supabase, sucursales, mes_sel, anio_sel, sucursal_sel)
+    with col1:
+        meses = {
+            1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril",
+            5: "Mayo", 6: "Junio", 7: "Julio", 8: "Agosto",
+            9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"
+        }
+        mes_actual = datetime.now().month
+        mes_seleccionado = st.selectbox(
+            "📅 Mes (para análisis)",
+            options=list(meses.keys()),
+            format_func=lambda x: meses[x],
+            index=mes_actual - 1,
+            help="Selecciona el mes que quieres analizar. No afecta la importación (las fechas vienen del CSV)."
+        )
+    
+    with col2:
+        anio_actual = datetime.now().year
+        anio_seleccionado = st.selectbox(
+            "📅 Año (para análisis)",
+            options=range(anio_actual - 2, anio_actual + 1),
+            index=2,
+            help="Selecciona el año que quieres analizar. No afecta la importación (las fechas vienen del CSV)."
+        )
+    
+    with col3:
+        sucursales = []
+        try:
+            result = supabase.table("sucursales").select("*").execute()
+            if result.data:
+                sucursales = result.data
+        except:
+            pass
+        
+        sucursal_seleccionada = st.selectbox(
+            "🏪 Sucursal (para análisis)",
+            options=[None] + sucursales,
+            format_func=lambda x: "Todas las sucursales" if x is None else x['nombre'],
+            help="Selecciona una sucursal para ver su análisis. Para importar, el sistema detectará automáticamente las sucursales del CSV."
+        )
+    
+    st.markdown("---")
+    
+    # Tabs
+    tab1, tab2, tab3, tab4 = st.tabs(["📁 Importar Gastos", "📊 Análisis del Período", "📈 Evolución Histórica", "📊 Estado de Resultado Granular"])
+    
+    with tab1:
+        mostrar_tab_importacion(supabase, sucursales, mes_seleccionado, anio_seleccionado, sucursal_seleccionada)
+    
+    with tab2:
+        mostrar_tab_analisis(supabase, sucursales, mes_seleccionado, anio_seleccionado, sucursal_seleccionada)
+    
+    with tab3:
+        mostrar_tab_evolucion(supabase, sucursales, sucursal_seleccionada)
+    
+    with tab4:
+        mostrar_tab_estado_resultado_granular(supabase, sucursales, mes_seleccionado, anio_seleccionado, sucursal_seleccionada)
+
 
 if __name__ == "__main__":
-    st.warning("⚠️ Ejecutar desde cajas_diarias.py")
+    st.warning("⚠️ Este módulo debe ejecutarse desde cajas_diarias.py")

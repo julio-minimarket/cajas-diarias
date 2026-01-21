@@ -16,12 +16,7 @@ import os
 from pathlib import Path
 import calendar
 
-# ==================== CONFIGURACIÓN INICIAL ====================
-st.set_page_config(
-    layout="wide", 
-    initial_sidebar_state="expanded",
-    page_title="P&L Simples - Estado de Resultados"
-)
+
 
 # Forzar limpieza de caché al inicio
 if 'cache_cleared' not in st.session_state:
@@ -2050,23 +2045,16 @@ def mostrar_tab_evolucion(supabase, sucursales, mes_seleccionado, anio_seleccion
     st.dataframe(df_display, hide_index=True, use_container_width=True)
 
 
-def main():
+def main(supabase):
     """
     Función principal de la aplicación
+    Recibe: supabase (cliente de conexión)
     """
-    st.title("💰 P&L Simples - Profit & Loss")
+    st.subheader("💰 P&L Simples - Profit & Loss")
     st.markdown("---")
     
-    # Conexión a Supabase (esto debe estar configurado en tu app)
-    # NOTA: Debes tener la configuración de Supabase aquí
-    # supabase = create_supabase_client()
-    
-    # Ejemplo de cómo podrías obtener supabase
-    if 'supabase' not in st.session_state:
-        st.error("❌ No se encontró la conexión a Supabase. Por favor, configura la conexión primero.")
-        return
-    
-    supabase = st.session_state['supabase']
+    # --- ELIMINADO: La lógica de buscar supabase en session_state ---
+    # Ya que ahora lo recibimos directamente como argumento
     
     # Obtener sucursales
     try:
@@ -2079,39 +2067,46 @@ def main():
         st.error(f"❌ Error obteniendo sucursales: {str(e)}")
         return
     
-    # Sidebar con filtros
-    st.sidebar.header("🔍 Filtros")
+    # --- MODIFICADO: Layout para que funcione dentro de cajas_diarias ---
+    # Usamos st.columns en lugar de st.sidebar para no saturar la barra lateral principal
     
-    # Selector de sucursal
-    sucursal_opciones = {s['nombre']: s for s in sucursales_con_todas}
-    sucursal_seleccionada_nombre = st.sidebar.selectbox(
-        "Sucursal",
-        options=list(sucursal_opciones.keys()),
-        index=0
-    )
-    sucursal_seleccionada = sucursal_opciones[sucursal_seleccionada_nombre]
+    col_filtros, col_kpis = st.columns([1, 3])
     
-    # Selectores de mes y año
-    mes_actual = datetime.now().month
-    anio_actual = datetime.now().year
-    
-    col_mes, col_anio = st.sidebar.columns(2)
-    
-    with col_mes:
-        mes_seleccionado = st.selectbox(
-            "Mes",
-            options=list(range(1, 13)),
-            format_func=lambda x: ['', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 
-                                  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'][x],
-            index=mes_actual - 1
+    with col_filtros:
+        st.markdown("### 🔍 Filtros")
+        
+        # Selector de sucursal
+        sucursal_opciones = {s['nombre']: s for s in sucursales_con_todas}
+        sucursal_seleccionada_nombre = st.selectbox(
+            "Sucursal",
+            options=list(sucursal_opciones.keys()),
+            index=0,
+            key="pl_sucursal_select" # Agregamos key única para evitar conflictos
         )
-    
-    with col_anio:
-        anio_seleccionado = st.selectbox(
-            "Año",
-            options=list(range(2023, anio_actual + 1)),
-            index=anio_actual - 2023
-        )
+        sucursal_seleccionada = sucursal_opciones[sucursal_seleccionada_nombre]
+        
+        # Selectores de mes y año
+        mes_actual = datetime.now().month
+        anio_actual = datetime.now().year
+        
+        c1, c2 = st.columns(2)
+        with c1:
+            mes_seleccionado = st.selectbox(
+                "Mes",
+                options=list(range(1, 13)),
+                format_func=lambda x: ['', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 
+                                      'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'][x],
+                index=mes_actual - 1,
+                key="pl_mes_select"
+            )
+        
+        with c2:
+            anio_seleccionado = st.selectbox(
+                "Año",
+                options=list(range(2023, anio_actual + 1)),
+                index=anio_actual - 2023,
+                key="pl_anio_select"
+            )
     
     # Tabs principales
     tab1, tab2, tab3, tab4 = st.tabs(["📊 Análisis del Período", "📊 Estado de Resultado Granular", "📁 Importar Gastos", "📈 Evolución Histórica"])

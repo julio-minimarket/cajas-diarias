@@ -980,13 +980,13 @@ def mostrar_tab_importacion(supabase, sucursales, mes_seleccionado, anio_selecci
 
 def mostrar_tab_analisis(supabase, sucursales, mes_seleccionado, anio_seleccionado, sucursal_seleccionada):
     """
-    Tab de análisis del período actual
+    Tab de análisis del período actual con diseño profesional de informe financiero
     """
     # Header con botón de refrescar
     col_header, col_refresh = st.columns([4, 1])
     
     with col_header:
-        st.subheader("📊 Análisis del Período Actual")
+        st.subheader("📊 Estado de Resultados Profesional")
     
     with col_refresh:
         if st.button("🔄 Refrescar", key="refresh_analisis", use_container_width=True, help="Actualizar datos desde la base de datos"):
@@ -997,7 +997,7 @@ def mostrar_tab_analisis(supabase, sucursales, mes_seleccionado, anio_selecciona
     sucursal_id = sucursal_seleccionada['id'] if sucursal_seleccionada else None
     sucursal_nombre = sucursal_seleccionada['nombre'] if sucursal_seleccionada else "Todas las sucursales"
     
-    # Obtener datos de la DB (ahora con caché)
+    # Obtener datos de la DB
     with st.spinner("Cargando datos..."):
         df_gastos = obtener_gastos_db(supabase, mes_seleccionado, anio_seleccionado, sucursal_id)
         df_ingresos = obtener_ingresos_mensuales(supabase, mes_seleccionado, anio_seleccionado, sucursal_id)
@@ -1013,14 +1013,11 @@ def mostrar_tab_analisis(supabase, sucursales, mes_seleccionado, anio_selecciona
         if sucursal_id not in sucursales_en_gastos:
             st.warning(f"⚠️ Los gastos de este período pertenecen a otras sucursales.")
             st.info(f"💡 Sucursales con gastos en {mes_seleccionado}/{anio_seleccionado}:")
-            
-            # Mostrar qué sucursales tienen gastos
             for suc_id in sucursales_en_gastos:
                 suc = next((s for s in sucursales if s['id'] == suc_id), None)
                 if suc:
                     cantidad = len(df_gastos[df_gastos['sucursal_id'] == suc_id])
                     st.write(f"   - {suc['nombre']}: {cantidad} registros")
-            
             st.info("💡 Selecciona una de estas sucursales en el selector de arriba para ver su análisis.")
             return
     
@@ -1028,204 +1025,305 @@ def mostrar_tab_analisis(supabase, sucursales, mes_seleccionado, anio_selecciona
     total_ingresos = df_ingresos['monto'].sum() if not df_ingresos.empty else 0
     total_gastos = df_gastos['total'].sum()
     resultado = total_ingresos - total_gastos
-    margen = (resultado / total_ingresos * 100) if total_ingresos > 0 else 0
+    margen_porcentaje = (resultado / total_ingresos * 100) if total_ingresos > 0 else 0
     
-    # Métricas principales
+    # INICIO: DISEÑO PROFESIONAL DE INFORME FINANCIERO
+    st.markdown("---")
+    
+    # Título del informe
+    meses = ['', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 
+             'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
+    nombre_mes = meses[mes_seleccionado]
+    
+    st.markdown(f"""
+    <div style="text-align: center; padding: 20px; background-color: #f8f9fa; border-radius: 10px; margin-bottom: 30px;">
+        <h1 style="color: #2c3e50; margin-bottom: 10px;">ESTADO DE RESULTADOS</h1>
+        <h2 style="color: #34495e; margin-bottom: 5px;">{nombre_mes.upper()} {anio_seleccionado}</h2>
+        <h3 style="color: #7f8c8d; font-weight: normal;">{sucursal_nombre.upper()}</h3>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # KPIs principales en tarjetas profesionales
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        st.metric(
-            "Ingresos Totales",
-            f"${total_ingresos:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
-        )
+        color_ingresos = "#27ae60" if total_ingresos > 0 else "#95a5a6"
+        st.markdown(f"""
+        <div style="background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); 
+                    padding: 20px; border-radius: 10px; text-align: center; 
+                    border-left: 5px solid {color_ingresos}; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+            <div style="color: #7f8c8d; font-size: 12px; font-weight: bold; margin-bottom: 5px;">INGRESOS</div>
+            <div style="color: {color_ingresos}; font-size: 24px; font-weight: bold;">
+                ${total_ingresos:,.2f}
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
     
     with col2:
-        st.metric(
-            "Gastos Totales",
-            f"${total_gastos:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'),
-            delta=f"-{(total_gastos/total_ingresos*100):.1f}%" if total_ingresos > 0 else None,
-            delta_color="inverse"
-        )
+        color_gastos = "#e74c3c"
+        st.markdown(f"""
+        <div style="background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); 
+                    padding: 20px; border-radius: 10px; text-align: center; 
+                    border-left: 5px solid {color_gastos}; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+            <div style="color: #7f8c8d; font-size: 12px; font-weight: bold; margin-bottom: 5px;">GASTOS</div>
+            <div style="color: {color_gastos}; font-size: 24px; font-weight: bold;">
+                ${total_gastos:,.2f}
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
     
     with col3:
-        st.metric(
-            "Resultado",
-            f"${resultado:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'),
-            delta=f"{margen:.1f}%",
-            delta_color="normal" if resultado >= 0 else "inverse"
-        )
+        color_resultado = "#27ae60" if resultado >= 0 else "#e74c3c"
+        st.markdown(f"""
+        <div style="background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); 
+                    padding: 20px; border-radius: 10px; text-align: center; 
+                    border-left: 5px solid {color_resultado}; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+            <div style="color: #7f8c8d; font-size: 12px; font-weight: bold; margin-bottom: 5px;">RESULTADO</div>
+            <div style="color: {color_resultado}; font-size: 24px; font-weight: bold;">
+                ${resultado:,.2f}
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
     
     with col4:
-        if margen >= 15:
-            st.metric("Estado", "🟢 Excelente", delta=f"{margen:.1f}%")
-        elif margen >= 10:
-            st.metric("Estado", "🟡 Bueno", delta=f"{margen:.1f}%")
-        elif margen >= 5:
-            st.metric("Estado", "🟠 Ajustado", delta=f"{margen:.1f}%")
-        else:
-            st.metric("Estado", "🔴 Crítico", delta=f"{margen:.1f}%")
+        color_margen = "#27ae60" if margen_porcentaje >= 0 else "#e74c3c"
+        st.markdown(f"""
+        <div style="background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); 
+                    padding: 20px; border-radius: 10px; text-align: center; 
+                    border-left: 5px solid {color_margen}; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+            <div style="color: #7f8c8d; font-size: 12px; font-weight: bold; margin-bottom: 5px;">MARGEN</div>
+            <div style="color: {color_margen}; font-size: 24px; font-weight: bold;">
+                {margen_porcentaje:.2f}%
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
     
-    # Análisis de composición
     st.markdown("---")
-    st.subheader("📊 Composición del Gasto")
     
-    analisis = analizar_composicion_gastos(df_gastos, total_ingresos)
+    # SECCIÓN DE INGRESOS
+    st.markdown("""
+    <div style="background-color: #34495e; color: white; padding: 10px; border-radius: 5px; margin-bottom: 15px;">
+        <h3 style="margin: 0; font-size: 18px;">VENTAS/INGRESOS</h3>
+    </div>
+    """, unsafe_allow_html=True)
     
-    df_analisis = pd.DataFrame(analisis['rubros'])
+    # Agrupar ingresos por categoría si hay datos
+    if not df_ingresos.empty:
+        # Aquí podrías agregar lógica para agrupar por tipo de ingreso si tienes esa información
+        ingresos_df = pd.DataFrame({
+            'Concepto': ['Ventas Salon'],
+            'Monto': [total_ingresos]
+        })
+        
+        for _, row in ingresos_df.iterrows():
+            st.markdown(f"""
+            <div style="padding: 8px 0; border-bottom: 1px solid #ecf0f1; display: flex; justify-content: space-between;">
+                <span style="color: #2c3e50;">{row['Concepto']}</span>
+                <span style="color: #2c3e50; font-weight: 500;">${row['Monto']:,.2f}</span>
+            </div>
+            """, unsafe_allow_html=True)
+    else:
+        st.markdown("""
+        <div style="padding: 8px 0; border-bottom: 1px solid #ecf0f1; display: flex; justify-content: space-between;">
+            <span style="color: #2c3e50;">Sin ingresos registrados</span>
+            <span style="color: #2c3e50; font-weight: 500;">$0.00</span>
+        </div>
+        """, unsafe_allow_html=True)
     
-    if not df_analisis.empty:
-        # Formatear para visualización
-        df_display = df_analisis.copy()
-        df_display['Gasto'] = df_display['gasto'].apply(
-            lambda x: f"${x:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
-        )
-        df_display['% Real'] = df_display['porcentaje_real'].apply(lambda x: f"{x:.1f}%")
-        df_display['% Ideal'] = df_display['benchmark'].apply(
-            lambda x: f"{x['porcentaje_ideal']:.1f}%" if x else "N/A"
-        )
-        df_display['Rango Óptimo'] = df_display['benchmark'].apply(
-            lambda x: f"{x['rango_min']:.1f}% - {x['rango_max']:.1f}%" if x else "N/A"
-        )
-        df_display['Estado'] = df_display['estado'].apply(
-            lambda x: "🟢 OK" if x == "ok" else ("🔴 Alto" if x == "alto" else ("🟡 Bajo" if x == "bajo" else "⚪"))
-        )
+    # Total de ingresos
+    st.markdown(f"""
+    <div style="padding: 12px 0; margin-top: 10px; border-top: 2px solid #34495e; display: flex; justify-content: space-between;">
+        <span style="color: #2c3e50; font-weight: bold; font-size: 16px;">TOTAL INGRESOS</span>
+        <span style="color: #2c3e50; font-weight: bold; font-size: 16px;">${total_ingresos:,.2f}</span>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    # SECCIÓN DE GASTOS
+    st.markdown("""
+    <div style="background-color: #34495e; color: white; padding: 10px; border-radius: 5px; margin-bottom: 15px;">
+        <h3 style="margin: 0; font-size: 18px;">COMPRAS/EGRESOS</h3>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Agrupar gastos por rubro con subtotales
+    if 'rubro' in df_gastos.columns:
+        gastos_agrupados = df_gastos.groupby('rubro')['total'].sum().sort_values(ascending=False)
         
-        st.dataframe(
-            df_display[['rubro', 'Gasto', '% Real', '% Ideal', 'Rango Óptimo', 'Estado']].rename(columns={
-                'rubro': 'Rubro'
-            }),
-            hide_index=True,
-            use_container_width=True
-        )
+        # Definir orden y categorías principales
+        categorias_principales = {
+            'ALIMENTOS': {'subcategorias': []},
+            'BEBIDAS': {'subcategorias': []},
+            'SUELDOS': {'subcategorias': ['Cargas Sociales']},
+            'SERVICIOS': {'subcategorias': []},
+            'ALQUILER': {'subcategorias': []},
+            'INSUMOS Y DESCARTABLES': {'subcategorias': []},
+            'IMPUESTOS': {'subcategorias': []},
+            'MATERIALES': {'subcategorias': []}
+        }
         
-        # Alertas
-        st.markdown("---")
-        st.subheader("💡 Alertas y Recomendaciones")
+        # Procesar cada categoría principal
+        for categoria, config in categorias_principales.items():
+            # Buscar gastos de esta categoría
+            gastos_categoria = gastos_agrupados[gastos_agrupados.index.str.contains(categoria, case=False, na=False)]
+            
+            if not gastos_categoria.empty:
+                # Mostrar categoría principal
+                total_categoria = gastos_categoria.sum()
+                st.markdown(f"""
+                <div style="padding: 8px 0; border-bottom: 1px solid #ecf0f1; display: flex; justify-content: space-between;">
+                    <span style="color: #2c3e50; font-weight: 500;">{categoria.title()}</span>
+                    <span style="color: #2c3e50; font-weight: 500;">${total_categoria:,.2f}</span>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # Mostrar subcategorías si existen
+                for subcat in config['subcategorias']:
+                    gastos_subcat = gastos_agrupados[gastos_agrupados.index.str.contains(subcat, case=False, na=False)]
+                    if not gastos_subcat.empty:
+                        for subcat_nombre, monto in gastos_subcat.items():
+                            st.markdown(f"""
+                            <div style="padding: 6px 0 6px 20px; border-bottom: 1px solid #ecf0f1; display: flex; justify-content: space-between; font-size: 14px;">
+                                <span style="color: #7f8c8d;">└─ {subcat_nombre}</span>
+                                <span style="color: #7f8c8d;">${monto:,.2f}</span>
+                            </div>
+                            """, unsafe_allow_html=True)
         
-        alertas = []
-        for item in analisis['rubros']:
-            if item['estado'] == 'alto':
-                alertas.append({
-                    'tipo': '⚠️ ALERTA',
-                    'mensaje': f"**{item['rubro']}** está en {item['porcentaje_real']:.1f}% (ideal: {item['benchmark']['porcentaje_ideal']:.1f}%)",
-                    'severidad': 'warning'
-                })
-            elif item['estado'] == 'bajo':
-                alertas.append({
-                    'tipo': '💡 OPORTUNIDAD',
-                    'mensaje': f"**{item['rubro']}** está en {item['porcentaje_real']:.1f}% (ideal: {item['benchmark']['porcentaje_ideal']:.1f}%)",
-                    'severidad': 'info'
-                })
+        # Mostrar otras categorías no incluidas en las principales
+        otras_categorias = []
+        for categoria, monto in gastos_agrupados.items():
+            es_principal = any(cat in categoria.upper() for cat in categorias_principales.keys())
+            if not es_principal:
+                otras_categorias.append((categoria, monto))
         
-        if alertas:
-            for alerta in alertas:
-                if alerta['severidad'] == 'warning':
-                    st.warning(f"{alerta['tipo']}: {alerta['mensaje']}")
+        if otras_categorias:
+            st.markdown("""
+            <div style="padding: 8px 0; border-bottom: 1px solid #ecf0f1; display: flex; justify-content: space-between;">
+                <span style="color: #2c3e50; font-weight: 500;">Otros Gastos</span>
+                <span style="color: #2c3e50; font-weight: 500;">$0.00</span>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            for categoria, monto in otras_categorias:
+                st.markdown(f"""
+                <div style="padding: 6px 0 6px 20px; border-bottom: 1px solid #ecf0f1; display: flex; justify-content: space-between; font-size: 14px;">
+                    <span style="color: #7f8c8d;">└─ {categoria}</span>
+                    <span style="color: #7f8c8d;">${monto:,.2f}</span>
+                </div>
+                """, unsafe_allow_html=True)
+    else:
+        # Si no hay rubro, mostrar total general
+        st.markdown(f"""
+        <div style="padding: 8px 0; border-bottom: 1px solid #ecf0f1; display: flex; justify-content: space-between;">
+            <span style="color: #2c3e50;">Gastos Operativos</span>
+            <span style="color: #2c3e50; font-weight: 500;">${total_gastos:,.2f}</span>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    # Total de egresos
+    st.markdown(f"""
+    <div style="padding: 12px 0; margin-top: 10px; border-top: 2px solid #34495e; display: flex; justify-content: space-between;">
+        <span style="color: #2c3e50; font-weight: bold; font-size: 16px;">TOTAL EGRESOS</span>
+        <span style="color: #2c3e50; font-weight: bold; font-size: 16px;">${total_gastos:,.2f}</span>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    st.markdown("---")
+    
+    # RESULTADO OPERATIVO
+    color_resultado_final = "#27ae60" if resultado >= 0 else "#e74c3c"
+    st.markdown(f"""
+    <div style="background-color: {color_resultado_final}20; padding: 20px; border-radius: 10px; border-left: 5px solid {color_resultado_final}; margin-bottom: 30px;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="color: {color_resultado_final}; font-weight: bold; font-size: 18px;">RESULTADO OPERATIVO</span>
+            <span style="color: {color_resultado_final}; font-weight: bold; font-size: 24px;">${resultado:,.2f}</span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # ANÁLISIS DE COMPOSICIÓN
+    st.markdown("""
+    <div style="background-color: #34495e; color: white; padding: 10px; border-radius: 5px; margin-bottom: 15px;">
+        <h3 style="margin: 0; font-size: 18px;">ANÁLISIS DE COMPOSICIÓN</h3>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Calcular porcentajes y comparar con benchmarks
+    benchmarks = calcular_benchmarks_gastronomia()
+    
+    if 'rubro' in df_gastos.columns:
+        gastos_por_rubro = df_gastos.groupby('rubro')['total'].sum()
+        
+        for rubro_key, benchmark in benchmarks.items():
+            # Buscar gastos que coincidan con este rubro
+            gastos_rubro = gastos_por_rubro[gastos_por_rubro.index.str.contains(rubro_key, case=False, na=False)]
+            
+            if not gastos_rubro.empty:
+                total_rubro = gastos_rubro.sum()
+                porcentaje_real = (total_rubro / total_ingresos * 100) if total_ingresos > 0 else 0
+                
+                # Determinar estado
+                if porcentaje_real < benchmark['rango_min']:
+                    estado = "BAJO"
+                    icono = "⬇️"
+                    color = "#3498db"
+                elif porcentaje_real > benchmark['rango_max']:
+                    estado = "ALTO"
+                    icono = "⬆️"
+                    color = "#e74c3c"
                 else:
-                    st.info(f"{alerta['tipo']}: {alerta['mensaje']}")
-        else:
-            st.success("✅ Todos los rubros están dentro de los rangos óptimos")
-        
-        # Gráficos
-        st.markdown("---")
-        st.subheader("📈 Visualizaciones")
-        
-        # Verificar si plotly está disponible
-        try:
-            import plotly.express as px
-            import plotly.graph_objects as go
-            plotly_disponible = True
-        except ImportError:
-            plotly_disponible = False
-            st.warning("⚠️ **Plotly no está instalado**. Los gráficos no están disponibles.")
-            st.info("💡 Para ver gráficos, instala plotly: `pip install plotly --break-system-packages`")
-        
-        if plotly_disponible:
-            tab1, tab2 = st.tabs(["Composición de Gastos", "Comparativa con Benchmarks"])
-            
-            with tab1:
-                fig = px.pie(
-                    df_analisis,
-                    values='gasto',
-                    names='rubro',
-                    title='Distribución de Gastos por Rubro'
-                )
-                st.plotly_chart(fig, use_container_width=True)
-            
-            with tab2:
-                df_comp = df_analisis[df_analisis['benchmark'].notna()].copy()
+                    estado = "OK"
+                    icono = "✅"
+                    color = "#27ae60"
                 
-                if not df_comp.empty:
-                    fig = go.Figure()
-                    
-                    fig.add_trace(go.Bar(
-                        x=df_comp['rubro'],
-                        y=df_comp['porcentaje_real'],
-                        name='% Real',
-                        marker_color='lightblue'
-                    ))
-                    
-                    fig.add_trace(go.Bar(
-                        x=df_comp['rubro'],
-                        y=df_comp['benchmark'].apply(lambda x: x['porcentaje_ideal']),
-                        name='% Ideal',
-                        marker_color='lightgreen'
-                    ))
-                    
-                    fig.update_layout(
-                        title='Comparativa: Real vs. Ideal (% sobre Ingresos)',
-                        xaxis_title='Rubro',
-                        yaxis_title='Porcentaje',
-                        barmode='group'
-                    )
-                    
-                    st.plotly_chart(fig, use_container_width=True)
-        
-        # Exportar
-        st.markdown("---")
-        if st.button("📥 Generar Reporte Excel", type="primary"):
-            with st.spinner("Generando reporte..."):
-                meses = {1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 5: "Mayo", 6: "Junio",
-                        7: "Julio", 8: "Agosto", 9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"}
-                
-                sucursal_nombre = sucursal_seleccionada['nombre'] if sucursal_seleccionada else "Todas"
-                nombre_archivo = f"PL_Simple_{meses[mes_seleccionado]}_{anio_seleccionado}_{sucursal_nombre}.xlsx"
-                
-                buffer = BytesIO()
-                
-                with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-                    # Hoja 1: Resumen
-                    resumen_exec = pd.DataFrame([{
-                        'Período': f"{meses[mes_seleccionado]} {anio_seleccionado}",
-                        'Sucursal': sucursal_nombre,
-                        'Ingresos': total_ingresos,
-                        'Gastos': total_gastos,
-                        'Resultado': resultado,
-                        'Margen %': margen
-                    }])
-                    resumen_exec.to_excel(writer, sheet_name='Resumen Ejecutivo', index=False)
-                    
-                    # Hoja 2: Composición
-                    df_display.to_excel(writer, sheet_name='Composición Gastos', index=False)
-                    
-                    # Hoja 3: Detalle Gastos
-                    df_gastos.to_excel(writer, sheet_name='Detalle Gastos', index=False)
-                    
-                    # Hoja 4: Detalle Ingresos
-                    if not df_ingresos.empty:
-                        df_ingresos.to_excel(writer, sheet_name='Detalle Ingresos', index=False)
-                
-                st.success("✅ Reporte generado exitosamente")
-                
-                # Preparar el buffer para descarga
-                buffer.seek(0)
-                
-                st.download_button(
-                    label="⬇️ Descargar Reporte Excel",
-                    data=buffer,
-                    file_name=nombre_archivo,
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
+                st.markdown(f"""
+                <div style="padding: 10px; margin-bottom: 10px; background-color: #f8f9fa; border-radius: 5px; border-left: 3px solid {color};">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <span style="color: #2c3e50; font-weight: 500;">{icono} {rubro_key.replace('_', ' ').title()} sobre Ventas</span>
+                        <span style="color: {color}; font-weight: bold;">{porcentaje_real:.2f}%</span>
+                    </div>
+                    <div style="font-size: 12px; color: #7f8c8d; margin-top: 5px;">
+                        Ideal: {benchmark['rango_min']:.0f}%-{benchmark['rango_max']:.0f}% | Estado: {estado}
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+    
+    # Margen neto
+    if margen_porcentaje >= 10:
+        estado_margen = "EXCELENTE"
+        icono_margen = "🟢"
+        color_margen = "#27ae60"
+    elif margen_porcentaje >= 5:
+        estado_margen = "ACEPTABLE"
+        icono_margen = "🟡"
+        color_margen = "#f39c12"
+    else:
+        estado_margen = "CRÍTICO"
+        icono_margen = "🔴"
+        color_margen = "#e74c3c"
+    
+    st.markdown(f"""
+    <div style="padding: 10px; margin-bottom: 10px; background-color: #f8f9fa; border-radius: 5px; border-left: 3px solid {color_margen};">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="color: #2c3e50; font-weight: 500;">{icono_margen} Margen Neto</span>
+            <span style="color: {color_margen}; font-weight: bold;">{margen_porcentaje:.2f}%</span>
+        </div>
+        <div style="font-size: 12px; color: #7f8c8d; margin-top: 5px;">
+            Ideal: 10%-15% | Estado: {estado_margen}
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Pie del informe
+    st.markdown("---")
+    st.markdown(f"""
+    <div style="text-align: center; color: #7f8c8d; font-size: 12px; padding: 20px;">
+        Informe generado el {datetime.now().strftime('%d/%m/%Y %H:%M:%S')} | 
+        Período: {nombre_mes} {anio_seleccionado} | 
+        Sucursal: {sucursal_nombre}
+    </div>
+    """, unsafe_allow_html=True)
 
 
 def mostrar_tab_evolucion(supabase, sucursales, sucursal_seleccionada):

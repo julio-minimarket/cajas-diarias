@@ -1251,17 +1251,20 @@ def mostrar_tab_analisis(supabase, sucursales, mes_seleccionado, anio_selecciona
                             """, unsafe_allow_html=True)
         
         # Mostrar otras categorías no incluidas en las principales
-        otras_categorias = []
-        for categoria, monto in gastos_agrupados.items():
+         otras_categorias = []
+         for categoria, monto in gastos_agrupados.items():
             es_principal = any(cat in categoria.upper() for cat in categorias_principales.keys())
             if not es_principal:
                 otras_categorias.append((categoria, monto))
         
-        if otras_categorias:
-            st.markdown("""
+         if otras_categorias:
+            # CORRECCIÓN: Calcular la suma de los otros gastos
+            total_otros_gastos = sum(monto for _, monto in otras_categorias)
+
+            st.markdown(f"""
             <div style="padding: 8px 0; border-bottom: 1px solid #ecf0f1; display: flex; justify-content: space-between;">
                 <span style="color: #2c3e50; font-weight: 500;">Otros Gastos</span>
-                <span style="color: #2c3e50; font-weight: 500;">$0.00</span>
+                <span style="color: #2c3e50; font-weight: 500;">${total_otros_gastos:,.2f}</span>
             </div>
             """, unsafe_allow_html=True)
             
@@ -1751,8 +1754,9 @@ def mostrar_estado_resultados_granular(supabase, sucursales, mes_seleccionado, a
             """, unsafe_allow_html=True)
         
         # Mostrar otras categorías no incluidas en las principales
-        otras_categorias = []
+         otras_categorias = []
         for categoria, monto in gastos_agrupados.items():
+            # Lógica para detectar si es principal (misma lógica que arriba)
             es_principal = (
                 'ALIMENTOS' in categoria.upper() or 
                 'BEBIDAS' in categoria.upper() or
@@ -1771,10 +1775,13 @@ def mostrar_estado_resultados_granular(supabase, sucursales, mes_seleccionado, a
                 otras_categorias.append((categoria, monto))
         
         if otras_categorias:
-            st.markdown("""
+            # CORRECCIÓN: Calcular la suma de los otros gastos
+            total_otros_gastos = sum(monto for _, monto in otras_categorias)
+            
+            st.markdown(f"""
             <div style="padding: 8px 0; border-bottom: 1px solid #ecf0f1; display: flex; justify-content: space-between;">
                 <span style="color: #2c3e50; font-weight: 500;">Otros Gastos</span>
-                <span style="color: #2c3e50; font-weight: 500;">$0.00</span>
+                <span style="color: #2c3e50; font-weight: 500;">${total_otros_gastos:,.2f}</span>
             </div>
             """, unsafe_allow_html=True)
             
@@ -1785,14 +1792,6 @@ def mostrar_estado_resultados_granular(supabase, sucursales, mes_seleccionado, a
                     <span style="color: #7f8c8d;">${monto:,.2f}</span>
                 </div>
                 """, unsafe_allow_html=True)
-    else:
-        # Si no hay rubro, mostrar total general
-        st.markdown(f"""
-        <div style="padding: 8px 0; border-bottom: 1px solid #ecf0f1; display: flex; justify-content: space-between;">
-            <span style="color: #2c3e50;">Gastos Operativos</span>
-            <span style="color: #2c3e50; font-weight: 500;">${total_gastos:,.2f}</span>
-        </div>
-        """, unsafe_allow_html=True)
     
     # Total de egresos
     st.markdown(f"""

@@ -568,7 +568,280 @@ def obtener_ingresos_mensuales(_supabase, mes, anio, sucursal_id=None):
         return pd.DataFrame()
 
 
-@st.cache_data(ttl=30)  # 🚀 OPTIMIZACIÓN: Cachear por 30 segundos
+def generar_excel_con_detalle(df_ingresos, df_gastos, total_ingresos, total_gastos, resultado, margen_porcentaje, sucursal_nombre, mes_seleccionado, anio_seleccionado):
+    """
+    Genera un archivo Excel con múltiples pestañas:
+    - Resumen: Estado de resultados resumido
+    - Detalle Movimientos: Todos los movimientos que componen el estado de resultados
+    """
+    from io import BytesIO
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    
+    # Crear el archivo Excel en memoria
+    output = BytesIO()
+    
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        # --- PESTANA 1: RESUMEN ---
+        meses = ['', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 
+                 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
+        nombre_mes = meses[mes_seleccionado]
+        
+        # Crear DataFrame de resumen
+        resumen_data = []
+        
+        # Encabezado
+        resumen_data.append(['ESTADO DE RESULTADOS', ''])
+        resumen_data.append([f'{nombre_mes.upper()} {anio_seleccionado}', ''])
+        resumen_data.append([sucursal_nombre.upper(), ''])
+        resumen_data.append(['', ''])
+        
+        # INGRESOS
+        resumen_data.append(['VENTAS/INGRESOS', ''])
+        if not df_ingresos.empty:
+            if 'categoria' in df_ingresos.columns:
+                ingresos_por_categoria = df_ingresos.groupby('categoria')['monto'].sum()
+                for categoria, monto in ingresos_por_categoria.items():
+                    resumen_data.append([f'  {categoria.title()}', monto])
+            else:
+                resumen_data.append(['  Ventas Salon', total_ingresos])
+        resumen_data.append(['TOTAL INGRESOS', total_ingresos])
+        resumen_data.append(['', ''])
+        
+        # GASTOS
+        resumen_data.append(['COMPRAS/EGRESOS', ''])
+        if 'rubro' in df_gastos.columns:
+            gastos_agrupados = df_gastos.groupby('rubro')['total'].sum().sort_values(ascending=False)
+            
+            # CMC
+            alimentos = gastos_agrupados[gastos_agrupados.index.str.contains('ALIMENTOS', case=False, na=False)].sum()
+            bebidas = gastos_agrupados[gastos_agrupados.index.str.contains('BEBIDAS', case=False, na=False)].sum()
+            total_cmc = alimentos + bebidas
+            
+            if total_cmc > 0:
+                resumen_data.append(['Costo de Mercaderia Consumida (CMC)', total_cmc])
+                if alimentos > 0:
+                    resumen_data.append(['  Alimentos', alimentos])
+                if bebidas > 0:
+                    resumen_data.append(['  Bebidas', bebidas])
+            
+            # Personal
+            sueldos = gastos_agrupados[gastos_agrupados.index.str.contains('SUELDOS', case=False, na=False)].sum()
+            cargas_sociales = gastos_agrupados[gastos_agrupados.index.str.contains('CARGAS SOCIALES', case=False, na=False)].sum()
+            total_personal = sueldos + cargas_sociales
+            
+            if total_personal > 0:
+                resumen_data.append(['Gastos de Personal', total_personal])
+                if sueldos > 0:
+                    resumen_data.append(['  Sueldos y Salarios', sueldos])
+                if cargas_sociales > 0:
+                    resumen_data.append(['  Cargas Sociales', cargas_sociales])
+            
+            # Operativos
+            alquiler = gastos_agrupados[gastos_agrupados.index.str.contains('ALQUILER', case=False, na=False)].sum()
+            servicios = gastos_agrupados[gastos_agrupados.index.str.contains('SERVICIOS', case=False, na=False)].sum()
+            mantenimiento = gastos_agrupados[gastos_agrupados.index.str.contains('MANTENIMIENTO', case=False, na=False)].sum()
+            publicidad = gastos_agrupados[gastos_agrupados.index.str.contains('PUBLICIDAD', case=False, na=False)].sum()
+            insumos = gastos_agrupados[gastos_agrupados.index.str.contains('INSUMOS', case=False, na=False)].sum()
+            materiales = gastos_agrupados[gastos_agrupados.index.str.contains('MATERIALES', case=False, na=False)].sum()
+            
+            # Obtener otras categorias
+            categorias_principales_keywords = ['ALIMENTOS', 'BEBIDAS', 'SUELDOS', 'CARGAS SOCIALES', 
+                                               'ALQUILER', 'SERVICIOS', 'MANTENIMIENTO', 'PUBLICIDAD', 
+                                               'INSUMOS', 'MATERIALES', 'IMPUESTOS']
+            
+            otras_categorias = []
+            for categoria, monto in gastos_agrupados.items():
+                es_principal = any(keyword in categoria.upper() for keyword in categorias_principales_keywords)
+                if not es_principal:
+                    otras_categorias.append((categoria, monto))
+            
+            total_otros_gastos = sum(monto for _, monto in otras_categorias)
+            
+            total_operativos = alquiler + servicios + mantenimiento + publicidad + total_otros_gastos + insumos + materiales
+            
+            if total_operativos > 0:
+                resumen_data.append(['Gastos Operativos', total_operativos])
+                if alquiler > 0:
+                    resumen_data.append(['  Alquileres', alquiler])
+                if servicios > 0:
+                    resumen_data.append(['  Servicios', servicios])
+                if mantenimiento > 0:
+                    resumen_data.append(['  Mantenimiento', mantenimiento])
+                if publicidad > 0:
+                    resumen_data.append(['  Publicidad', publicidad])
+                if total_otros_gastos > 0:
+                    resumen_data.append(['  Otros Gastos', total_otros_gastos])
+                    for categoria, monto in otras_categorias:
+                        resumen_data.append([f'    {categoria}', monto])
+                if insumos > 0:
+                    resumen_data.append(['  Insumos y Descartables', insumos])
+                if materiales > 0:
+                    resumen_data.append(['  Materiales', materiales])
+            
+            # Impuestos
+            impuestos = gastos_agrupados[gastos_agrupados.index.str.contains('IMPUESTOS', case=False, na=False)].sum()
+            if impuestos > 0:
+                resumen_data.append(['Impuestos y Tasas', impuestos])
+        
+        resumen_data.append(['TOTAL EGRESOS', total_gastos])
+        resumen_data.append(['', ''])
+        
+        # RESULTADO
+        resumen_data.append(['RESULTADO OPERATIVO', resultado])
+        resumen_data.append(['MARGEN %', f'{margen_porcentaje:.2f}%'])
+        
+        df_resumen = pd.DataFrame(resumen_data, columns=['Concepto', 'Monto'])
+        df_resumen.to_excel(writer, sheet_name='Resumen', index=False)
+        
+        # Formatear pestana de resumen
+        worksheet_resumen = writer.sheets['Resumen']
+        
+        # Ajustar anchos de columna
+        worksheet_resumen.column_dimensions['A'].width = 40
+        worksheet_resumen.column_dimensions['B'].width = 20
+        
+        # Aplicar estilos
+        header_fill = PatternFill(start_color="34495e", end_color="34495e", fill_type="solid")
+        header_font = Font(bold=True, color="FFFFFF", size=12)
+        
+        for row in worksheet_resumen.iter_rows(min_row=1, max_row=1):
+            for cell in row:
+                cell.fill = header_fill
+                cell.font = header_font
+                cell.alignment = Alignment(horizontal='center')
+        
+        # Formato de moneda para columna B (excepto encabezados y porcentajes)
+        for row_idx, row in enumerate(worksheet_resumen.iter_rows(min_row=2), start=2):
+            cell_concepto = row[0]
+            cell_monto = row[1]
+            
+            # Negrita para totales
+            if cell_concepto.value and any(keyword in str(cell_concepto.value).upper() 
+                                           for keyword in ['TOTAL', 'RESULTADO', 'VENTAS/INGRESOS', 'COMPRAS/EGRESOS']):
+                cell_concepto.font = Font(bold=True, size=11)
+                cell_monto.font = Font(bold=True, size=11)
+            
+            # Formato de moneda
+            if cell_monto.value and isinstance(cell_monto.value, (int, float)) and 'MARGEN' not in str(cell_concepto.value).upper():
+                cell_monto.number_format = '$#,##0.00'
+            
+            # Alineacion
+            cell_concepto.alignment = Alignment(horizontal='left')
+            cell_monto.alignment = Alignment(horizontal='right')
+        
+        # --- PESTANA 2: DETALLE DE MOVIMIENTOS ---
+        # Preparar datos de gastos para el detalle
+        if not df_gastos.empty:
+            df_detalle_gastos = df_gastos.copy()
+            
+            # Seleccionar y renombrar columnas relevantes
+            columnas_detalle = []
+            rename_dict = {}
+            
+            # Mapeo de columnas estandar
+            if 'fecha' in df_detalle_gastos.columns:
+                columnas_detalle.append('fecha')
+                rename_dict['fecha'] = 'Fecha'
+            
+            if 'empresa' in df_detalle_gastos.columns:
+                columnas_detalle.append('empresa')
+                rename_dict['empresa'] = 'Empresa'
+            elif 'proveedor' in df_detalle_gastos.columns:
+                columnas_detalle.append('proveedor')
+                rename_dict['proveedor'] = 'Proveedor'
+            
+            if 'tipo_comprobante' in df_detalle_gastos.columns:
+                columnas_detalle.append('tipo_comprobante')
+                rename_dict['tipo_comprobante'] = 'Tipo Comprobante'
+            
+            if 'numero_factura' in df_detalle_gastos.columns:
+                columnas_detalle.append('numero_factura')
+                rename_dict['numero_factura'] = 'Nro Factura'
+            
+            if 'rubro' in df_detalle_gastos.columns:
+                columnas_detalle.append('rubro')
+                rename_dict['rubro'] = 'Categoria'
+            elif 'categoria' in df_detalle_gastos.columns:
+                columnas_detalle.append('categoria')
+                rename_dict['categoria'] = 'Categoria'
+            
+            if 'neto' in df_detalle_gastos.columns:
+                columnas_detalle.append('neto')
+                rename_dict['neto'] = 'Neto'
+            
+            if 'iva_percepciones' in df_detalle_gastos.columns:
+                columnas_detalle.append('iva_percepciones')
+                rename_dict['iva_percepciones'] = 'IVA y Percepciones'
+            
+            if 'total' in df_detalle_gastos.columns:
+                columnas_detalle.append('total')
+                rename_dict['total'] = 'Total'
+            
+            # Filtrar y renombrar
+            df_detalle_export = df_detalle_gastos[columnas_detalle].copy()
+            df_detalle_export = df_detalle_export.rename(columns=rename_dict)
+            
+            # Ordenar por fecha
+            if 'Fecha' in df_detalle_export.columns:
+                df_detalle_export = df_detalle_export.sort_values('Fecha')
+            
+            # Escribir a Excel
+            df_detalle_export.to_excel(writer, sheet_name='Detalle Movimientos', index=False)
+            
+            # Formatear pestana de detalle
+            worksheet_detalle = writer.sheets['Detalle Movimientos']
+            
+            # Ajustar anchos de columna
+            for column in worksheet_detalle.columns:
+                max_length = 0
+                column_letter = column[0].column_letter
+                for cell in column:
+                    try:
+                        if len(str(cell.value)) > max_length:
+                            max_length = len(str(cell.value))
+                    except:
+                        pass
+                adjusted_width = min(max_length + 2, 50)
+                worksheet_detalle.column_dimensions[column_letter].width = adjusted_width
+            
+            # Aplicar estilos al encabezado
+            for cell in worksheet_detalle[1]:
+                cell.fill = header_fill
+                cell.font = header_font
+                cell.alignment = Alignment(horizontal='center')
+            
+            # Formato de moneda para columnas de monto
+            for row in worksheet_detalle.iter_rows(min_row=2):
+                for cell in row:
+                    if isinstance(cell.value, (int, float)) and cell.column > 5:
+                        cell.number_format = '$#,##0.00'
+                    cell.alignment = Alignment(horizontal='left')
+            
+            # Agregar fila de totales al final
+            ultima_fila = worksheet_detalle.max_row + 1
+            worksheet_detalle.cell(row=ultima_fila, column=1).value = 'TOTAL GENERAL'
+            worksheet_detalle.cell(row=ultima_fila, column=1).font = Font(bold=True, size=11)
+            
+            # Buscar columna de total
+            col_total = None
+            for idx, cell in enumerate(worksheet_detalle[1], start=1):
+                if cell.value == 'Total':
+                    col_total = idx
+                    break
+            
+            if col_total:
+                total_formula = f'=SUM({openpyxl.utils.get_column_letter(col_total)}2:{openpyxl.utils.get_column_letter(col_total)}{ultima_fila-1})'
+                cell_total = worksheet_detalle.cell(row=ultima_fila, column=col_total)
+                cell_total.value = total_formula
+                cell_total.font = Font(bold=True, size=11)
+                cell_total.number_format = '$#,##0.00'
+    
+    output.seek(0)
+    return output
+
+
+@st.cache_data(ttl=30)  # OPTIMIZACION: Cachear por 30 segundos
 def obtener_evolucion_historica(_supabase, sucursal_id, meses_atras=12):
     """
     Obtiene la evolución histórica de gastos e ingresos
@@ -1251,20 +1524,18 @@ def mostrar_tab_analisis(supabase, sucursales, mes_seleccionado, anio_selecciona
                             """, unsafe_allow_html=True)
         
         # Mostrar otras categorías no incluidas en las principales
-         otras_categorias = []
-         for categoria, monto in gastos_agrupados.items():
+        otras_categorias = []
+        for categoria, monto in gastos_agrupados.items():
             es_principal = any(cat in categoria.upper() for cat in categorias_principales.keys())
             if not es_principal:
                 otras_categorias.append((categoria, monto))
         
-         if otras_categorias:
-            # CORRECCIÓN: Calcular la suma de los otros gastos
-            total_otros_gastos = sum(monto for _, monto in otras_categorias)
-
+        if otras_categorias:
+            total_otras = sum(monto for _, monto in otras_categorias)
             st.markdown(f"""
             <div style="padding: 8px 0; border-bottom: 1px solid #ecf0f1; display: flex; justify-content: space-between;">
                 <span style="color: #2c3e50; font-weight: 500;">Otros Gastos</span>
-                <span style="color: #2c3e50; font-weight: 500;">${total_otros_gastos:,.2f}</span>
+                <span style="color: #2c3e50; font-weight: 500;">${total_otras:,.2f}</span>
             </div>
             """, unsafe_allow_html=True)
             
@@ -1387,6 +1658,24 @@ def mostrar_tab_analisis(supabase, sucursales, mes_seleccionado, anio_selecciona
         Sucursal: {sucursal_nombre}
     </div>
     """, unsafe_allow_html=True)
+    
+    # Boton de descarga Excel
+    st.markdown("---")
+    col_desc1, col_desc2, col_desc3 = st.columns([1, 2, 1])
+    with col_desc2:
+        excel_file = generar_excel_con_detalle(
+            df_ingresos, df_gastos, total_ingresos, total_gastos, 
+            resultado, margen_porcentaje, sucursal_nombre, 
+            mes_seleccionado, anio_seleccionado
+        )
+        st.download_button(
+            label="Descargar Estado de Resultados (Excel)",
+            data=excel_file,
+            file_name=f"Estado_Resultados_{sucursal_nombre}_{mes_seleccionado}_{anio_seleccionado}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+            key="download_analisis"
+        )
 
 
 def mostrar_estado_resultados_granular(supabase, sucursales, mes_seleccionado, anio_seleccionado, sucursal_seleccionada):
@@ -1754,9 +2043,8 @@ def mostrar_estado_resultados_granular(supabase, sucursales, mes_seleccionado, a
             """, unsafe_allow_html=True)
         
         # Mostrar otras categorías no incluidas en las principales
-         otras_categorias = []
+        otras_categorias = []
         for categoria, monto in gastos_agrupados.items():
-            # Lógica para detectar si es principal (misma lógica que arriba)
             es_principal = (
                 'ALIMENTOS' in categoria.upper() or 
                 'BEBIDAS' in categoria.upper() or
@@ -1775,13 +2063,11 @@ def mostrar_estado_resultados_granular(supabase, sucursales, mes_seleccionado, a
                 otras_categorias.append((categoria, monto))
         
         if otras_categorias:
-            # CORRECCIÓN: Calcular la suma de los otros gastos
-            total_otros_gastos = sum(monto for _, monto in otras_categorias)
-            
+            total_otras = sum(monto for _, monto in otras_categorias)
             st.markdown(f"""
             <div style="padding: 8px 0; border-bottom: 1px solid #ecf0f1; display: flex; justify-content: space-between;">
                 <span style="color: #2c3e50; font-weight: 500;">Otros Gastos</span>
-                <span style="color: #2c3e50; font-weight: 500;">${total_otros_gastos:,.2f}</span>
+                <span style="color: #2c3e50; font-weight: 500;">${total_otras:,.2f}</span>
             </div>
             """, unsafe_allow_html=True)
             
@@ -1792,6 +2078,14 @@ def mostrar_estado_resultados_granular(supabase, sucursales, mes_seleccionado, a
                     <span style="color: #7f8c8d;">${monto:,.2f}</span>
                 </div>
                 """, unsafe_allow_html=True)
+    else:
+        # Si no hay rubro, mostrar total general
+        st.markdown(f"""
+        <div style="padding: 8px 0; border-bottom: 1px solid #ecf0f1; display: flex; justify-content: space-between;">
+            <span style="color: #2c3e50;">Gastos Operativos</span>
+            <span style="color: #2c3e50; font-weight: 500;">${total_gastos:,.2f}</span>
+        </div>
+        """, unsafe_allow_html=True)
     
     # Total de egresos
     st.markdown(f"""
@@ -1952,6 +2246,24 @@ def mostrar_estado_resultados_granular(supabase, sucursales, mes_seleccionado, a
         Sucursal: {sucursal_nombre}
     </div>
     """, unsafe_allow_html=True)
+    
+    # Boton de descarga Excel
+    st.markdown("---")
+    col_desc1, col_desc2, col_desc3 = st.columns([1, 2, 1])
+    with col_desc2:
+        excel_file = generar_excel_con_detalle(
+            df_ingresos, df_gastos, total_ingresos, total_gastos, 
+            resultado, margen_porcentaje, sucursal_nombre, 
+            mes_seleccionado, anio_seleccionado
+        )
+        st.download_button(
+            label="Descargar Estado de Resultados Granular (Excel)",
+            data=excel_file,
+            file_name=f"Estado_Resultados_Granular_{sucursal_nombre}_{mes_seleccionado}_{anio_seleccionado}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+            key="download_granular"
+        )
 
 
 def mostrar_tab_evolucion(supabase, sucursales, mes_seleccionado, anio_seleccionado, sucursal_seleccionada):

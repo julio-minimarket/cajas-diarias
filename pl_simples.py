@@ -17,6 +17,15 @@ from pathlib import Path
 import calendar
 from io import BytesIO
 
+# Forzar que Streamlit no use caché
+st.set_page_config(layout="wide", initial_sidebar_state="expanded")
+
+# Limpiar caché al inicio
+if 'cache_cleared' not in st.session_state:
+    st.cache_resource.clear()
+    st.cache_data.clear()
+    st.session_state['cache_cleared'] = True
+
 # ==================== FUNCIONES DE PROCESAMIENTO DE GASTOS ====================
 
 # ============================================================

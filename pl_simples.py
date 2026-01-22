@@ -1825,22 +1825,32 @@ def mostrar_estado_resultados_granular(supabase, sucursales, mes_seleccionado, a
         # Calcular total del item
         total_item = subrubros_item['total'].sum()
         
-        # Mostrar item principal
+        # Calcular porcentaje sobre total gastos
+        porcentaje_item = (total_item / total_gastos * 100) if total_gastos > 0 else 0
+        
+        # Mostrar item principal con porcentaje
         st.markdown(f"""
-        <div style="padding: 8px 0; border-bottom: 1px solid #ecf0f1; display: flex; justify-content: space-between;">
+        <div style="padding: 8px 0; border-bottom: 1px solid #ecf0f1; display: flex; justify-content: space-between; align-items: center;">
             <span style="color: #2c3e50; font-weight: 500;">{nombre_item}</span>
-            <span style="color: #2c3e50; font-weight: 500;">${total_item:,.2f}</span>
+            <div style="display: flex; align-items: center; gap: 15px;">
+                <span style="color: #2c3e50; font-weight: 500;">${total_item:,.2f}</span>
+                <span style="color: #7f8c8d; font-size: 13px; min-width: 60px; text-align: right;">{porcentaje_item:.2f}%</span>
+            </div>
         </div>
         """, unsafe_allow_html=True)
         
-        # Agrupar subrubros y mostrar
+        # Agrupar subrubros y mostrar con porcentajes
         subrubros_agrupados = subrubros_item.groupby('subrubro_norm')['total'].sum()
         for subrubro, monto in subrubros_agrupados.items():
             if monto > 0:
+                porcentaje_subrubro = (monto / total_gastos * 100) if total_gastos > 0 else 0
                 st.markdown(f"""
-                <div style="padding: 6px 0 6px 20px; border-bottom: 1px solid #ecf0f1; display: flex; justify-content: space-between; font-size: 14px;">
+                <div style="padding: 6px 0 6px 20px; border-bottom: 1px solid #ecf0f1; display: flex; justify-content: space-between; align-items: center; font-size: 14px;">
                     <span style="color: #7f8c8d;">└─ {subrubro.title()}</span>
-                    <span style="color: #7f8c8d;">${monto:,.2f}</span>
+                    <div style="display: flex; align-items: center; gap: 15px;">
+                        <span style="color: #7f8c8d;">${monto:,.2f}</span>
+                        <span style="color: #95a5a6; font-size: 12px; min-width: 60px; text-align: right;">{porcentaje_subrubro:.2f}%</span>
+                    </div>
                 </div>
                 """, unsafe_allow_html=True)
         
@@ -1848,10 +1858,14 @@ def mostrar_estado_resultados_granular(supabase, sucursales, mes_seleccionado, a
     
     def mostrar_subtotal(texto, monto):
         """Muestra un subtotal"""
+        porcentaje = (monto / total_gastos * 100) if total_gastos > 0 else 0
         st.markdown(f"""
-        <div style="padding: 10px 0; margin-top: 5px; border-top: 2px solid #95a5a6; display: flex; justify-content: space-between;">
+        <div style="padding: 10px 0; margin-top: 5px; border-top: 2px solid #95a5a6; display: flex; justify-content: space-between; align-items: center;">
             <span style="color: #2c3e50; font-weight: bold; font-size: 15px;">→ {texto}</span>
-            <span style="color: #2c3e50; font-weight: bold; font-size: 15px;">${monto:,.2f}</span>
+            <div style="display: flex; align-items: center; gap: 15px;">
+                <span style="color: #2c3e50; font-weight: bold; font-size: 15px;">${monto:,.2f}</span>
+                <span style="color: #7f8c8d; font-size: 13px; min-width: 60px; text-align: right;">{porcentaje:.2f}%</span>
+            </div>
         </div>
         """, unsafe_allow_html=True)
     
@@ -2020,13 +2034,17 @@ def mostrar_estado_resultados_granular(supabase, sucursales, mes_seleccionado, a
     # RESULTADO OPERATIVO
     # ==================================================================================
     resultado_final = total_ingresos - total_egresos_final
+    porcentaje_resultado = (resultado_final / total_ingresos * 100) if total_ingresos > 0 else 0
     color_resultado_final = "#27ae60" if resultado_final >= 0 else "#e74c3c"
     
     st.markdown(f"""
     <div style="background-color: {color_resultado_final}20; padding: 20px; border-radius: 10px; border-left: 5px solid {color_resultado_final}; margin-bottom: 30px;">
         <div style="display: flex; justify-content: space-between; align-items: center;">
             <span style="color: {color_resultado_final}; font-weight: bold; font-size: 18px;">RESULTADO OPERATIVO ESTIMADO</span>
-            <span style="color: {color_resultado_final}; font-weight: bold; font-size: 24px;">${resultado_final:,.2f}</span>
+            <div style="display: flex; align-items: center; gap: 20px;">
+                <span style="color: {color_resultado_final}; font-weight: bold; font-size: 24px;">${resultado_final:,.2f}</span>
+                <span style="color: {color_resultado_final}; font-weight: bold; font-size: 18px;">({porcentaje_resultado:.2f}%)</span>
+            </div>
         </div>
     </div>
     """, unsafe_allow_html=True)

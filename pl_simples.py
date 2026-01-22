@@ -1680,8 +1680,7 @@ def mostrar_tab_analisis(supabase, sucursales, mes_seleccionado, anio_selecciona
 
 def mostrar_estado_resultados_granular(supabase, sucursales, mes_seleccionado, anio_seleccionado, sucursal_seleccionada):
     """
-    Genera el informe "Estado de Resultados Granular" con diseño profesional
-    USANDO MAPEO DE BASE DE DATOS
+    Genera el Estado de Resultados Granular con estructura jerárquica y diseño profesional
     """
     # Header con botón de refrescar
     col_header, col_refresh = st.columns([4, 1])
@@ -1690,7 +1689,7 @@ def mostrar_estado_resultados_granular(supabase, sucursales, mes_seleccionado, a
         st.subheader("📊 Estado de Resultados Granular")
     
     with col_refresh:
-        if st.button("🔄 Refrescar", key="refresh_granular", use_container_width=True, help="Actualizar datos desde la base de datos"):
+        if st.button("🔄 Refrescar", key="refresh_granular", use_container_width=True):
             limpiar_cache_pl_simples()
             st.success("✅ Datos actualizados")
             st.rerun()
@@ -1698,29 +1697,38 @@ def mostrar_estado_resultados_granular(supabase, sucursales, mes_seleccionado, a
     sucursal_id = sucursal_seleccionada['id'] if sucursal_seleccionada else None
     sucursal_nombre = sucursal_seleccionada['nombre'] if sucursal_seleccionada else "Todas las sucursales"
     
-    # Obtener datos de la DB
+    # Obtener datos
     with st.spinner("Cargando datos..."):
         df_gastos = obtener_gastos_db(supabase, mes_seleccionado, anio_seleccionado, sucursal_id)
         df_ingresos = obtener_ingresos_mensuales(supabase, mes_seleccionado, anio_seleccionado, sucursal_id)
     
     if df_gastos.empty:
         st.warning(f"⚠️ No hay gastos registrados para **{sucursal_nombre}** en **{mes_seleccionado}/{anio_seleccionado}**.")
-        st.info("💡 Ve a la pestaña 'Importar Gastos' para cargar datos.")
         return
     
-    # Verificar si los gastos son de sucursales diferentes a la seleccionada
-    if sucursal_seleccionada:
-        sucursales_en_gastos = df_gastos['sucursal_id'].unique()
-        if sucursal_id not in sucursales_en_gastos:
-            st.warning(f"⚠️ Los gastos de este período pertenecen a otras sucursales.")
-            st.info(f"💡 Sucursales con gastos en {mes_seleccionado}/{anio_seleccionado}:")
-            for suc_id in sucursales_en_gastos:
-                suc = next((s for s in sucursales if s['id'] == suc_id), None)
-                if suc:
-                    cantidad = len(df_gastos[df_gastos['sucursal_id'] == suc_id])
-                    st.write(f"   - {suc['nombre']}: {cantidad} registros")
-            st.info("💡 Selecciona una de estas sucursales en el selector de arriba para ver su análisis.")
+    # Obtener mapeo de BD
+    try:
+        result_mapeo = supabase.table("mapeo_estado_resultado_granular").select("*").execute()
+        if result_mapeo.data:
+            df_mapeo = pd.DataFrame(result_mapeo.data)
+            df_mapeo['subrubro'] = df_mapeo['subrubro'].str.upper().str.strip()
+        else:
+            st.warning("⚠️ No hay mapeo configurado")
             return
+    except Exception as e:
+        st.error(f"❌ Error: {str(e)}")
+        return
+    
+    # Normalizar y hacer merge
+    columna_subrubro = 'subrubro' if 'subrubro' in df_gastos.columns else 'rubro'
+    df_gastos['subrubro_norm'] = df_gastos[columna_subrubro].str.upper().str.strip()
+    
+    df_merged = df_gastos.merge(
+        df_mapeo[['cod_inf', 'item', 'subrubro']],
+        left_on='subrubro_norm',
+        right_on='subrubro',
+        how='left'
+    )
     
     # Calcular totales
     total_ingresos = df_ingresos['monto'].sum() if not df_ingresos.empty else 0
@@ -1729,55 +1737,10 @@ def mostrar_estado_resultados_granular(supabase, sucursales, mes_seleccionado, a
     margen_porcentaje = (resultado / total_ingresos * 100) if total_ingresos > 0 else 0
     
     # ==================================================================================
-    # OBTENER MAPEO DE LA BASE DE DATOS
-    # ==================================================================================
-    try:
-        result_mapeo = supabase.table("mapeo_estado_resultado_granular").select("*").execute()
-        if result_mapeo.data:
-            df_mapeo = pd.DataFrame(result_mapeo.data)
-            df_mapeo['subrubro'] = df_mapeo['subrubro'].str.upper().str.strip()
-        else:
-            st.warning("⚠️ No hay mapeo configurado en la base de datos")
-            return
-    except Exception as e:
-        st.error(f"❌ Error obteniendo mapeo: {str(e)}")
-        return
-    
-    # ==================================================================================
-    # AGRUPAR GASTOS SEGÚN MAPEO DE BD
-    # ==================================================================================
-    # Normalizar subrubros en gastos
-    if 'rubro' not in df_gastos.columns and 'subrubro' not in df_gastos.columns:
-        st.error("❌ Los datos de gastos no tienen columna 'rubro' o 'subrubro'")
-        return
-    
-    columna_subrubro = 'subrubro' if 'subrubro' in df_gastos.columns else 'rubro'
-    df_gastos['subrubro_norm'] = df_gastos[columna_subrubro].str.upper().str.strip()
-    
-    # Hacer merge con el mapeo
-    df_merged = df_gastos.merge(
-        df_mapeo[['cod_inf', 'item', 'subrubro']],
-        left_on='subrubro_norm',
-        right_on='subrubro',
-        how='left'
-    )
-    
-    # Agrupar por cod_inf e item
-    gastos_por_item = df_merged.groupby(['cod_inf', 'item']).agg({
-        'total': 'sum'
-    }).reset_index()
-    
-    # También necesitamos los sub-items (subrubros) para cada item
-    gastos_por_subrubro = df_merged.groupby(['cod_inf', 'item', 'subrubro_norm']).agg({
-        'total': 'sum'
-    }).reset_index()
-    
-    # ==================================================================================
-    # INICIO: DISEÑO PROFESIONAL DE INFORME FINANCIERO GRANULAR
+    # HEADER DEL INFORME
     # ==================================================================================
     st.markdown("---")
     
-    # Título del informe
     meses = ['', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 
              'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
     nombre_mes = meses[mes_seleccionado]
@@ -1790,7 +1753,9 @@ def mostrar_estado_resultados_granular(supabase, sucursales, mes_seleccionado, a
     </div>
     """, unsafe_allow_html=True)
     
-    # KPIs principales en tarjetas profesionales
+    # ==================================================================================
+    # KPIs EN TARJETAS
+    # ==================================================================================
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
@@ -1807,13 +1772,12 @@ def mostrar_estado_resultados_granular(supabase, sucursales, mes_seleccionado, a
         """, unsafe_allow_html=True)
     
     with col2:
-        color_gastos = "#e74c3c"
         st.markdown(f"""
         <div style="background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); 
                     padding: 20px; border-radius: 10px; text-align: center; 
-                    border-left: 5px solid {color_gastos}; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                    border-left: 5px solid #e74c3c; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
             <div style="color: #7f8c8d; font-size: 12px; font-weight: bold; margin-bottom: 5px;">GASTOS</div>
-            <div style="color: {color_gastos}; font-size: 24px; font-weight: bold;">
+            <div style="color: #e74c3c; font-size: 24px; font-weight: bold;">
                 ${total_gastos:,.2f}
             </div>
         </div>
@@ -1848,6 +1812,50 @@ def mostrar_estado_resultados_granular(supabase, sucursales, mes_seleccionado, a
     st.markdown("---")
     
     # ==================================================================================
+    # FUNCIÓN AUXILIAR PARA MOSTRAR ITEMS
+    # ==================================================================================
+    def mostrar_item(cod_inf, nombre_item, df_merged):
+        """Muestra un item con sus subrubros"""
+        # Filtrar subrubros de este item
+        subrubros_item = df_merged[df_merged['cod_inf'] == cod_inf]
+        
+        if subrubros_item.empty:
+            return 0
+        
+        # Calcular total del item
+        total_item = subrubros_item['total'].sum()
+        
+        # Mostrar item principal
+        st.markdown(f"""
+        <div style="padding: 8px 0; border-bottom: 1px solid #ecf0f1; display: flex; justify-content: space-between;">
+            <span style="color: #2c3e50; font-weight: 500;">{nombre_item}</span>
+            <span style="color: #2c3e50; font-weight: 500;">${total_item:,.2f}</span>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Agrupar subrubros y mostrar
+        subrubros_agrupados = subrubros_item.groupby('subrubro_norm')['total'].sum()
+        for subrubro, monto in subrubros_agrupados.items():
+            if monto > 0:
+                st.markdown(f"""
+                <div style="padding: 6px 0 6px 20px; border-bottom: 1px solid #ecf0f1; display: flex; justify-content: space-between; font-size: 14px;">
+                    <span style="color: #7f8c8d;">└─ {subrubro.title()}</span>
+                    <span style="color: #7f8c8d;">${monto:,.2f}</span>
+                </div>
+                """, unsafe_allow_html=True)
+        
+        return total_item
+    
+    def mostrar_subtotal(texto, monto):
+        """Muestra un subtotal"""
+        st.markdown(f"""
+        <div style="padding: 10px 0; margin-top: 5px; border-top: 2px solid #95a5a6; display: flex; justify-content: space-between;">
+            <span style="color: #2c3e50; font-weight: bold; font-size: 15px;">→ {texto}</span>
+            <span style="color: #2c3e50; font-weight: bold; font-size: 15px;">${monto:,.2f}</span>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    # ==================================================================================
     # SECCIÓN DE INGRESOS
     # ==================================================================================
     st.markdown("""
@@ -1856,62 +1864,23 @@ def mostrar_estado_resultados_granular(supabase, sucursales, mes_seleccionado, a
     </div>
     """, unsafe_allow_html=True)
     
-    # Agrupar ingresos por categoría si hay datos
-    if not df_ingresos.empty:
-        if 'categoria' in df_ingresos.columns:
-            ingresos_por_categoria = df_ingresos.groupby('categoria')['monto'].sum()
-            
-            for categoria, monto in ingresos_por_categoria.items():
-                st.markdown(f"""
-                <div style="padding: 8px 0; border-bottom: 1px solid #ecf0f1; display: flex; justify-content: space-between;">
-                    <span style="color: #2c3e50;">{categoria.title()}</span>
-                    <span style="color: #2c3e50; font-weight: 500;">${monto:,.2f}</span>
-                </div>
-                """, unsafe_allow_html=True)
-        else:
+    if not df_ingresos.empty and 'categoria' in df_ingresos.columns:
+        ingresos_por_categoria = df_ingresos.groupby('categoria')['monto'].sum()
+        for categoria, monto in ingresos_por_categoria.items():
             st.markdown(f"""
             <div style="padding: 8px 0; border-bottom: 1px solid #ecf0f1; display: flex; justify-content: space-between;">
-                <span style="color: #2c3e50;">Salon</span>
-                <span style="color: #2c3e50; font-weight: 500;">${total_ingresos:,.2f}</span>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            st.markdown("""
-            <div style="padding: 8px 0; border-bottom: 1px solid #ecf0f1; display: flex; justify-content: space-between;">
-                <span style="color: #2c3e50;">Delivery</span>
-                <span style="color: #2c3e50; font-weight: 500;">$0.00</span>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            st.markdown("""
-            <div style="padding: 8px 0; border-bottom: 1px solid #ecf0f1; display: flex; justify-content: space-between;">
-                <span style="color: #2c3e50;">Otros Ingresos</span>
-                <span style="color: #2c3e50; font-weight: 500;">$0.00</span>
+                <span style="color: #2c3e50;">{categoria.title()}</span>
+                <span style="color: #2c3e50; font-weight: 500;">${monto:,.2f}</span>
             </div>
             """, unsafe_allow_html=True)
     else:
-        st.markdown("""
+        st.markdown(f"""
         <div style="padding: 8px 0; border-bottom: 1px solid #ecf0f1; display: flex; justify-content: space-between;">
             <span style="color: #2c3e50;">Salon</span>
-            <span style="color: #2c3e50; font-weight: 500;">$0.00</span>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        st.markdown("""
-        <div style="padding: 8px 0; border-bottom: 1px solid #ecf0f1; display: flex; justify-content: space-between;">
-            <span style="color: #2c3e50;">Delivery</span>
-            <span style="color: #2c3e50; font-weight: 500;">$0.00</span>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        st.markdown("""
-        <div style="padding: 8px 0; border-bottom: 1px solid #ecf0f1; display: flex; justify-content: space-between;">
-            <span style="color: #2c3e50;">Otros Ingresos</span>
-            <span style="color: #2c3e50; font-weight: 500;">$0.00</span>
+            <span style="color: #2c3e50; font-weight: 500;">${total_ingresos:,.2f}</span>
         </div>
         """, unsafe_allow_html=True)
     
-    # Total de ingresos
     st.markdown(f"""
     <div style="padding: 12px 0; margin-top: 10px; border-top: 2px solid #34495e; display: flex; justify-content: space-between;">
         <span style="color: #2c3e50; font-weight: bold; font-size: 16px;">TOTAL INGRESOS</span>
@@ -1922,7 +1891,7 @@ def mostrar_estado_resultados_granular(supabase, sucursales, mes_seleccionado, a
     st.markdown("<br>", unsafe_allow_html=True)
     
     # ==================================================================================
-    # SECCIÓN DE GASTOS - USANDO MAPEO DE BD
+    # SECCIÓN DE GASTOS CON ESTRUCTURA JERÁRQUICA
     # ==================================================================================
     st.markdown("""
     <div style="background-color: #34495e; color: white; padding: 10px; border-radius: 5px; margin-bottom: 15px;">
@@ -1931,133 +1900,117 @@ def mostrar_estado_resultados_granular(supabase, sucursales, mes_seleccionado, a
     """, unsafe_allow_html=True)
     
     # ==================================================================================
-    # 1. CMC (Costo de Mercadería Consumida) - COD_INF = 1
+    # GRUPO 1: CMC + Sueldos + Cargas + Sindicatos
     # ==================================================================================
-    cmc_items = gastos_por_item[gastos_por_item['cod_inf'] == 1]
-    if not cmc_items.empty:
-        total_cmc = cmc_items['total'].sum()
-        
-        st.markdown(f"""
-        <div style="padding: 8px 0; border-bottom: 1px solid #ecf0f1; display: flex; justify-content: space-between;">
-            <span style="color: #2c3e50; font-weight: 500;">Costo de Mercadería Consumida (CMC)</span>
-            <span style="color: #2c3e50; font-weight: 500;">${total_cmc:,.2f}</span>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        # Sub-items de CMC
-        cmc_subitems = gastos_por_subrubro[gastos_por_subrubro['cod_inf'] == 1]
-        for _, row in cmc_subitems.iterrows():
-            subrubro = row['subrubro_norm']
-            monto = row['total']
-            if monto > 0:
-                st.markdown(f"""
-                <div style="padding: 6px 0 6px 20px; border-bottom: 1px solid #ecf0f1; display: flex; justify-content: space-between; font-size: 14px;">
-                    <span style="color: #7f8c8d;">└─ {subrubro.title()}</span>
-                    <span style="color: #7f8c8d;">${monto:,.2f}</span>
-                </div>
-                """, unsafe_allow_html=True)
+    subtotal_grupo1 = 0
+    subtotal_grupo1 += mostrar_item(1, "Costo de Mercadería Consumida (CMC)", df_merged)
+    subtotal_grupo1 += mostrar_item(2, "Gastos de Personal", df_merged)
+    subtotal_grupo1 += mostrar_item(3, "Cargas sociales", df_merged)
+    subtotal_grupo1 += mostrar_item(4, "Sindicatos", df_merged)
+    
+    if subtotal_grupo1 > 0:
+        mostrar_subtotal("Subtotal sueldos y CMC", subtotal_grupo1)
+        st.markdown("<br>", unsafe_allow_html=True)
     
     # ==================================================================================
-    # 2. GASTOS DE PERSONAL - COD_INF 2, 3, 4
+    # GRUPO 2: Alquiler + Servicios
     # ==================================================================================
-    personal_items = gastos_por_item[gastos_por_item['cod_inf'].isin([2, 3, 4])]
-    if not personal_items.empty:
-        total_personal = personal_items['total'].sum()
-        
-        st.markdown(f"""
-        <div style="padding: 8px 0; border-bottom: 1px solid #ecf0f1; display: flex; justify-content: space-between;">
-            <span style="color: #2c3e50; font-weight: 500;">Gastos de Personal</span>
-            <span style="color: #2c3e50; font-weight: 500;">${total_personal:,.2f}</span>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        # Sub-items de Personal
-        personal_subitems = gastos_por_subrubro[gastos_por_subrubro['cod_inf'].isin([2, 3, 4])]
-        for _, row in personal_subitems.iterrows():
-            subrubro = row['subrubro_norm']
-            monto = row['total']
-            if monto > 0:
-                st.markdown(f"""
-                <div style="padding: 6px 0 6px 20px; border-bottom: 1px solid #ecf0f1; display: flex; justify-content: space-between; font-size: 14px;">
-                    <span style="color: #7f8c8d;">└─ {subrubro.title()}</span>
-                    <span style="color: #7f8c8d;">${monto:,.2f}</span>
-                </div>
-                """, unsafe_allow_html=True)
+    subtotal_grupo2 = 0
+    subtotal_grupo2 += mostrar_item(5, "Alquiler", df_merged)
+    subtotal_grupo2 += mostrar_item(6, "Servicios", df_merged)
+    
+    if subtotal_grupo2 > 0:
+        mostrar_subtotal("Subtotal alquileres y servicios", subtotal_grupo2)
+        st.markdown("<br>", unsafe_allow_html=True)
     
     # ==================================================================================
-    # 3. GASTOS OPERATIVOS - COD_INF 5, 6, 7, 8, 9, 10, 11, 12, 18
+    # GRUPO 3: Honorarios + Publicidad
     # ==================================================================================
-    operativos_items = gastos_por_item[gastos_por_item['cod_inf'].isin([5, 6, 7, 8, 9, 10, 11, 12, 18])]
-    if not operativos_items.empty:
-        total_operativos = operativos_items['total'].sum()
-        
-        st.markdown(f"""
-        <div style="padding: 8px 0; border-bottom: 1px solid #ecf0f1; display: flex; justify-content: space-between;">
-            <span style="color: #2c3e50; font-weight: 500;">Gastos Operativos</span>
-            <span style="color: #2c3e50; font-weight: 500;">${total_operativos:,.2f}</span>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        # Sub-items de Operativos
-        operativos_subitems = gastos_por_subrubro[gastos_por_subrubro['cod_inf'].isin([5, 6, 7, 8, 9, 10, 11, 12, 18])]
-        for _, row in operativos_subitems.iterrows():
-            subrubro = row['subrubro_norm']
-            monto = row['total']
-            if monto > 0:
-                st.markdown(f"""
-                <div style="padding: 6px 0 6px 20px; border-bottom: 1px solid #ecf0f1; display: flex; justify-content: space-between; font-size: 14px;">
-                    <span style="color: #7f8c8d;">└─ {subrubro.title()}</span>
-                    <span style="color: #7f8c8d;">${monto:,.2f}</span>
-                </div>
-                """, unsafe_allow_html=True)
+    subtotal_grupo3 = 0
+    subtotal_grupo3 += mostrar_item(7, "Honorarios profesionales", df_merged)
+    subtotal_grupo3 += mostrar_item(8, "Publicidad", df_merged)
+    
+    if subtotal_grupo3 > 0:
+        mostrar_subtotal("Subtotal de honorarios", subtotal_grupo3)
+        st.markdown("<br>", unsafe_allow_html=True)
     
     # ==================================================================================
-    # 4. IMPUESTOS Y TASAS - COD_INF 13, 14, 15, 16, 17
+    # GRUPO 4: Materiales + Mantenimiento + Bienes de uso
     # ==================================================================================
-    impuestos_items = gastos_por_item[gastos_por_item['cod_inf'].isin([13, 14, 15, 16, 17])]
-    if not impuestos_items.empty:
-        total_impuestos = impuestos_items['total'].sum()
-        
-        st.markdown(f"""
-        <div style="padding: 8px 0; border-bottom: 1px solid #ecf0f1; display: flex; justify-content: space-between;">
-            <span style="color: #2c3e50; font-weight: 500;">Impuestos y Tasas</span>
-            <span style="color: #2c3e50; font-weight: 500;">${total_impuestos:,.2f}</span>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        # Sub-items de Impuestos
-        impuestos_subitems = gastos_por_subrubro[gastos_por_subrubro['cod_inf'].isin([13, 14, 15, 16, 17])]
-        for _, row in impuestos_subitems.iterrows():
-            subrubro = row['subrubro_norm']
-            monto = row['total']
-            if monto > 0:
-                st.markdown(f"""
-                <div style="padding: 6px 0 6px 20px; border-bottom: 1px solid #ecf0f1; display: flex; justify-content: space-between; font-size: 14px;">
-                    <span style="color: #7f8c8d;">└─ {subrubro.title()}</span>
-                    <span style="color: #7f8c8d;">${monto:,.2f}</span>
-                </div>
-                """, unsafe_allow_html=True)
+    subtotal_grupo4 = 0
+    subtotal_grupo4 += mostrar_item(9, "Materiales", df_merged)
+    subtotal_grupo4 += mostrar_item(10, "Mantenimiento", df_merged)
+    subtotal_grupo4 += mostrar_item(11, "Bienes de uso", df_merged)
+    
+    if subtotal_grupo4 > 0:
+        mostrar_subtotal("Subtotal de mantenimiento y bienes de uso", subtotal_grupo4)
+        st.markdown("<br>", unsafe_allow_html=True)
     
     # ==================================================================================
-    # 5. RETIROS - COD_INF 19
+    # GRUPO 5: Royalties + Servicios admin
     # ==================================================================================
-    retiros_items = gastos_por_item[gastos_por_item['cod_inf'] == 19]
-    if not retiros_items.empty:
-        total_retiros = retiros_items['total'].sum()
-        
-        if total_retiros > 0:
-            st.markdown(f"""
-            <div style="padding: 8px 0; border-bottom: 1px solid #ecf0f1; display: flex; justify-content: space-between;">
-                <span style="color: #2c3e50; font-weight: 500;">Retiros</span>
-                <span style="color: #2c3e50; font-weight: 500;">${total_retiros:,.2f}</span>
-            </div>
-            """, unsafe_allow_html=True)
+    subtotal_grupo5 = 0
+    subtotal_grupo5 += mostrar_item(12, "Royalties", df_merged)
+    subtotal_grupo5 += mostrar_item(18, "Servicios administrativos/logísticos", df_merged)
     
-    # Total de egresos
+    if subtotal_grupo5 > 0:
+        mostrar_subtotal("Subtotal de royalties y logística", subtotal_grupo5)
+        st.markdown("<br>", unsafe_allow_html=True)
+    
+    # Total de egresos operativos
+    total_egresos_operativos = subtotal_grupo1 + subtotal_grupo2 + subtotal_grupo3 + subtotal_grupo4 + subtotal_grupo5
+    
+    st.markdown(f"""
+    <div style="padding: 12px 0; margin-top: 10px; border-top: 2px solid #34495e; display: flex; justify-content: space-between;">
+        <span style="color: #2c3e50; font-weight: bold; font-size: 16px;">TOTAL DE EGRESOS</span>
+        <span style="color: #2c3e50; font-weight: bold; font-size: 16px;">${total_egresos_operativos:,.2f}</span>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    saldo_impuestos_retiros = total_ingresos - total_egresos_operativos
+    
+    st.markdown(f"""
+    <div style="padding: 12px 0; border-top: 2px solid #27ae60; display: flex; justify-content: space-between;">
+        <span style="color: #27ae60; font-weight: bold; font-size: 16px;">SALDO PARA IMPUESTOS Y RETIROS</span>
+        <span style="color: #27ae60; font-weight: bold; font-size: 16px;">${saldo_impuestos_retiros:,.2f}</span>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    # ==================================================================================
+    # GRUPO 6: Retiros
+    # ==================================================================================
+    total_retiros = mostrar_item(19, "Retiros", df_merged)
+    
+    if total_retiros > 0:
+        st.markdown("<br>", unsafe_allow_html=True)
+    
+    # ==================================================================================
+    # GRUPO 7: Gastos bancarios + Impuestos
+    # ==================================================================================
+    subtotal_impuestos = 0
+    subtotal_impuestos += mostrar_item(13, "Gastos y comisiones bancarias/tarjetas", df_merged)
+    subtotal_impuestos += mostrar_item(14, "Impuestos municipales", df_merged)
+    subtotal_impuestos += mostrar_item(15, "Impuestos provinciales", df_merged)
+    subtotal_impuestos += mostrar_item(16, "Impuestos nacionales", df_merged)
+    subtotal_impuestos += mostrar_item(17, "Iva a pagar", df_merged)
+    
+    if subtotal_impuestos > 0:
+        mostrar_subtotal("Subtotal de impuestos", subtotal_impuestos)
+    
+    if total_retiros > 0:
+        mostrar_subtotal("Subtotal de retiros", total_retiros)
+    
+    # ==================================================================================
+    # TOTAL EGRESOS FINAL
+    # ==================================================================================
+    total_egresos_final = total_egresos_operativos + total_retiros + subtotal_impuestos
+    
     st.markdown(f"""
     <div style="padding: 12px 0; margin-top: 10px; border-top: 2px solid #34495e; display: flex; justify-content: space-between;">
         <span style="color: #2c3e50; font-weight: bold; font-size: 16px;">TOTAL EGRESOS</span>
-        <span style="color: #2c3e50; font-weight: bold; font-size: 16px;">${total_gastos:,.2f}</span>
+        <span style="color: #2c3e50; font-weight: bold; font-size: 16px;">${total_egresos_final:,.2f}</span>
     </div>
     """, unsafe_allow_html=True)
     
@@ -2066,12 +2019,14 @@ def mostrar_estado_resultados_granular(supabase, sucursales, mes_seleccionado, a
     # ==================================================================================
     # RESULTADO OPERATIVO
     # ==================================================================================
-    color_resultado_final = "#27ae60" if resultado >= 0 else "#e74c3c"
+    resultado_final = total_ingresos - total_egresos_final
+    color_resultado_final = "#27ae60" if resultado_final >= 0 else "#e74c3c"
+    
     st.markdown(f"""
     <div style="background-color: {color_resultado_final}20; padding: 20px; border-radius: 10px; border-left: 5px solid {color_resultado_final}; margin-bottom: 30px;">
         <div style="display: flex; justify-content: space-between; align-items: center;">
-            <span style="color: {color_resultado_final}; font-weight: bold; font-size: 18px;">RESULTADO OPERATIVO</span>
-            <span style="color: {color_resultado_final}; font-weight: bold; font-size: 24px;">${resultado:,.2f}</span>
+            <span style="color: {color_resultado_final}; font-weight: bold; font-size: 18px;">RESULTADO OPERATIVO ESTIMADO</span>
+            <span style="color: {color_resultado_final}; font-weight: bold; font-size: 24px;">${resultado_final:,.2f}</span>
         </div>
     </div>
     """, unsafe_allow_html=True)

@@ -1801,7 +1801,7 @@ def mostrar_estado_resultados_granular(supabase, sucursales, mes_seleccionado, a
     st.markdown("---")
     
     # ==================================================================================
-    # SECCIÓN DE INGRESOS - CON SEPARACIÓN DE PEDIDOS YA
+    # SECCIÓN DE INGRESOS - CON SEPARACIÓN DE PEDIDOS YA (POR CATEGORÍA)
     # ==================================================================================
     st.markdown("""
     <div style="background-color: #34495e; color: white; padding: 10px; border-radius: 5px; margin-bottom: 15px;">
@@ -1810,17 +1810,17 @@ def mostrar_estado_resultados_granular(supabase, sucursales, mes_seleccionado, a
     """, unsafe_allow_html=True)
     
     if not df_ingresos.empty:
-        # Verificar si existe la columna medio_pago_id
-        if 'medio_pago_id' in df_ingresos.columns:
-            # Separar ingresos de Pedidos Ya (medio_pago_id = 10) del resto
-            ingresos_pedidos_ya = df_ingresos[df_ingresos['medio_pago_id'] == 10]['monto'].sum()
-            ingresos_otros_medios = df_ingresos[df_ingresos['medio_pago_id'] != 10]['monto'].sum()
+        # Verificar si existe la columna categoria_id
+        if 'categoria_id' in df_ingresos.columns:
+            # Separar ingresos de Pedidos Ya (categoria_id = 2) del resto
+            ingresos_pedidos_ya = df_ingresos[df_ingresos['categoria_id'] == 2]['monto'].sum()
+            ingresos_otros_medios = df_ingresos[df_ingresos['categoria_id'] != 2]['monto'].sum()
             
             # Calcular porcentajes sobre total ingresos
             porcentaje_otros = (ingresos_otros_medios / total_ingresos * 100) if total_ingresos > 0 else 0
             porcentaje_pedidos_ya = (ingresos_pedidos_ya / total_ingresos * 100) if total_ingresos > 0 else 0
             
-            # Mostrar Ventas/Ingresos (otros medios)
+            # Mostrar Ventas/Ingresos (otros medios) - Solo si hay monto
             if ingresos_otros_medios > 0:
                 st.markdown(f"""
                 <div style="padding: 8px 0; border-bottom: 1px solid #ecf0f1; display: flex; justify-content: space-between; align-items: center;">
@@ -1832,11 +1832,11 @@ def mostrar_estado_resultados_granular(supabase, sucursales, mes_seleccionado, a
                 </div>
                 """, unsafe_allow_html=True)
             
-            # Mostrar Tarjeta Pedidos Ya
+            # Mostrar Tarjeta Pedidos Ya - Solo si hay monto
             if ingresos_pedidos_ya > 0:
                 st.markdown(f"""
                 <div style="padding: 8px 0; border-bottom: 1px solid #ecf0f1; display: flex; justify-content: space-between; align-items: center;">
-                    <span style="color: #2c3e50;">Tarjeta Pedidos Ya</span>
+                    <span style="color: #2c3e50;">Ventas Pedidos Ya</span>
                     <div style="display: flex; align-items: center; gap: 15px;">
                         <span style="color: #2c3e50; font-weight: 500;">${ingresos_pedidos_ya:,.2f}</span>
                         <span style="color: #7f8c8d; font-size: 13px; min-width: 60px; text-align: right;">{porcentaje_pedidos_ya:.2f}%</span>
@@ -1845,7 +1845,7 @@ def mostrar_estado_resultados_granular(supabase, sucursales, mes_seleccionado, a
                 """, unsafe_allow_html=True)
             
         else:
-            # Si no existe medio_pago_id, mostrar como antes (sin separación)
+            # Si no existe categoria_id, mostrar como antes (sin separación)
             st.markdown(f"""
             <div style="padding: 8px 0; border-bottom: 1px solid #ecf0f1; display: flex; justify-content: space-between; align-items: center;">
                 <span style="color: #2c3e50;">Ventas/Ingresos</span>

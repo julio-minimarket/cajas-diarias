@@ -22,55 +22,20 @@ def init_supabase() -> Client:
     
     return create_client(url, key)
 
-def check_existing_session():
-    """
-    🆕 NUEVO: Verifica si ya hay sesión válida en Supabase
-    Retorna la sesión existente o None
-    """
-    try:
-        supabase = init_supabase()
-        response = supabase.auth.get_session()
-        
-        if response and response.session:
-            return response.session
-        return None
-    except:
-        return None
-
 def login(email: str, password: str):
     """
-    Inicia sesión - AHORA CON PROTECCIÓN ANTI-DUPLICADOS
+    Inicia sesión con protección anti-duplicados
     """
     try:
         supabase = init_supabase()
         
-        # 🆕 NUEVO: Primero verificar si ya hay sesión activa válida
-        existing_session = check_existing_session()
-        if existing_session:
-            # Ya hay sesión, reusarla en lugar de crear nueva
-            user_id = existing_session.user.id
-            profile = supabase.table('user_profiles').select('*').eq('id', user_id).single().execute()
-            
-            st.session_state.user = {
-                'id': user_id,
-                'email': existing_session.user.email,
-                'rol': profile.data['rol'],
-                'nombre': profile.data.get('nombre_completo', existing_session.user.email),
-                'sucursal_asignada': profile.data.get('sucursal_asignada'),
-                'access_token': existing_session.access_token
-            }
-            st.session_state.authenticated = True
-            return True, "✅ Sesión recuperada correctamente"
-        
-        # 🆕 NUEVO: Si no hay sesión, invalidar sesiones previas del usuario
-        # Esto evita acumulación de tokens
+        # 🆕 ANTI-DUPLICADO: Invalidar sesiones previas antes de crear nueva
         try:
-            # Intentar sign_out global para este usuario (limpia tokens viejos)
             supabase.auth.sign_out({"scope": "global"})
         except:
-            pass  # Si falla, continuar igual
+            pass
         
-        # Ahora sí crear nueva sesión
+        # Crear nueva sesión
         response = supabase.auth.sign_in_with_password({
             "email": email,
             "password": password
@@ -100,36 +65,21 @@ def login(email: str, password: str):
         return False, f"❌ Error de autenticación: {error_msg}"
 
 def logout():
-    """Cierra sesión - AHORA CON LIMPIEZA COMPLETA"""
+    """Cierra sesión limpiando todo"""
     try:
         supabase = init_supabase()
-        # 🆕 CAMBIADO: Usar scope global para invalidar TODOS los tokens
         supabase.auth.sign_out({"scope": "global"})
     except:
         pass
     
     # Limpiar session_state
-    for key in list(st.session_state.keys()):
+    keys_to_delete = list(st.session_state.keys())
+    for key in keys_to_delete:
         del st.session_state[key]
 
 def is_authenticated():
-    """Verifica autenticación - AHORA CON VALIDACIÓN DE TOKEN"""
-    # 🆕 NUEVO: Verificar tanto session_state como token válido en Supabase
-    if not st.session_state.get('authenticated', False):
-        return False
-    
-    # Verificar que el token en session_state sigue siendo válido
-    try:
-        supabase = init_supabase()
-        session = supabase.auth.get_session()
-        if not session or not session.session:
-            # Token expirado o inválido, limpiar session_state
-            st.session_state.authenticated = False
-            st.session_state.user = None
-            return False
-        return True
-    except:
-        return False
+    """Verifica si hay usuario autenticado"""
+    return st.session_state.get('authenticated', False)
 
 def get_user_role():
     """Obtiene el rol del usuario actual"""
@@ -138,11 +88,9 @@ def get_user_role():
     return None
 
 def is_admin():
-    """Verifica si el usuario es admin"""
     return get_user_role() == 'admin'
 
 def is_gerente():
-    """Verifica si el usuario es gerente"""
     return get_user_role() == 'gerente'
 
 def get_user_sucursal():
@@ -152,48 +100,21 @@ def get_user_sucursal():
     return None
 
 def require_auth():
-    """
-    Protege páginas que requieren autenticación
-    """
+    """Protege páginas que requieren autenticación"""
     if not is_authenticated():
         st.warning("⚠️ Debes iniciar sesión para acceder")
         show_login_form()
         st.stop()
 
 def show_login_form():
-    """
-    Muestra formulario de login - AHORA CON PROTECCIÓN ANTI-SPAM
-    """
+    """Muestra formulario de login"""
     st.title("🔐 Sistema de Cajas Diarias")
     st.subheader("Iniciar Sesión")
-    
-    # 🆕 NUEVO: Verificar si ya hay sesión antes de mostrar formulario
-    existing_session = check_existing_session()
-    if existing_session:
-        # Auto-login si hay sesión válida
-        try:
-            supabase = init_supabase()
-            user_id = existing_session.user.id
-            profile = supabase.table('user_profiles').select('*').eq('id', user_id).single().execute()
-            
-            st.session_state.user = {
-                'id': user_id,
-                'email': existing_session.user.email,
-                'rol': profile.data['rol'],
-                'nombre': profile.data.get('nombre_completo', existing_session.user.email),
-                'sucursal_asignada': profile.data.get('sucursal_asignada'),
-                'access_token': existing_session.access_token
-            }
-            st.session_state.authenticated = True
-            st.rerun()
-            return
-        except:
-            pass  # Si falla, mostrar formulario normal
     
     with st.form("login_form"):
         email = st.text_input("📧 Email", placeholder="usuario@cajas.local")
         password = st.text_input("🔑 Contraseña", type="password")
-        submit = st.form_submit_button("🚀 Iniciar Sesión", width="stretch")
+        submit = st.form_submit_button("🚀 Iniciar Sesión")
         
         if submit:
             if not email or not password:
@@ -207,7 +128,6 @@ def show_login_form():
                     else:
                         st.error(message)
     
-    # Información de ayuda
     with st.expander("ℹ️ Información de acceso"):
         st.markdown("""
         **Usuarios de Sucursales:**
@@ -216,8 +136,6 @@ def show_login_form():
         
         **Administrador:**
         - Contacta al administrador del sistema
-        
-        ⚠️ **Se recomienda cambiar la contraseña en el primer acceso.**
         """)
 
 def puede_cargar_fecha(fecha_seleccionada, rol_usuario):
@@ -258,7 +176,6 @@ def cambiar_password(password_actual: str, password_nueva: str):
         supabase = init_supabase()
         user = st.session_state.user
         
-        # Verificar contraseña actual
         try:
             supabase.auth.sign_in_with_password({
                 "email": user['email'],
@@ -267,9 +184,7 @@ def cambiar_password(password_actual: str, password_nueva: str):
         except:
             return False, "❌ La contraseña actual es incorrecta"
         
-        # Cambiar contraseña
         supabase.auth.update_user({"password": password_nueva})
-        
         return True, "✅ Contraseña actualizada exitosamente"
         
     except Exception as e:
@@ -286,9 +201,9 @@ def mostrar_cambio_password():
         
         col1, col2 = st.columns(2)
         with col1:
-            submit = st.form_submit_button("💾 Cambiar", width="stretch")
+            submit = st.form_submit_button("💾 Cambiar")
         with col2:
-            cancel = st.form_submit_button("❌ Cancelar", width="stretch")
+            cancel = st.form_submit_button("❌ Cancelar")
         
         if cancel:
             st.session_state.mostrar_cambio_pwd = False
@@ -298,78 +213,3 @@ def mostrar_cambio_password():
             if not all([password_actual, password_nueva, password_confirmar]):
                 st.error("Completa todos los campos")
             elif password_nueva != password_confirmar:
-                st.error("Las contraseñas nuevas no coinciden")
-            elif len(password_nueva) < 6:
-                st.error("La contraseña debe tener al menos 6 caracteres")
-            else:
-                success, message = cambiar_password(password_actual, password_nueva)
-                if success:
-                    st.success(message)
-                    st.session_state.mostrar_cambio_pwd = False
-                    st.rerun()
-                else:
-                    st.error(message)
-
-def mostrar_info_usuario_sidebar():
-    """Muestra información del usuario en el sidebar"""
-    with st.sidebar:
-        st.markdown("---")
-        st.subheader("👤 Usuario")
-        user = st.session_state.user
-        
-        st.write(f"**{user['nombre']}**")
-        st.caption(f"📧 {user['email']}")
-        
-        rol = user['rol'].lower()
-        if rol == 'admin':
-            st.success("🔓 **ADMINISTRADOR**")
-        elif rol == 'gerente':
-            st.info("👔 **GERENTE**")
-        else:
-            st.info("👤 **ENCARGADO**")
-        
-        sucursal_asignada = user.get('sucursal_asignada')
-        if sucursal_asignada:
-            st.write(f"🏪 Sucursal ID: **{sucursal_asignada}**")
-        else:
-            if rol == 'encargado':
-                st.warning("⚠️ Sin sucursal asignada")
-        
-        st.markdown("---")
-        
-        if st.button("🔒 Cambiar Contraseña", width="stretch", key="btn_cambiar_pwd"):
-            st.session_state.mostrar_cambio_pwd = True
-            st.rerun()
-        
-        if st.button("🚪 Cerrar Sesión", width="stretch", key="btn_logout"):
-            logout()
-            st.rerun()
-
-def validar_acceso_sucursal(sucursal_id: int) -> bool:
-    """Valida si el usuario puede acceder a una sucursal específica"""
-    if is_admin() or is_gerente():
-        return True
-    
-    sucursal_usuario = get_user_sucursal()
-    if sucursal_usuario is None:
-        return False
-    
-    return sucursal_id == sucursal_usuario
-
-def filtrar_sucursales_disponibles(todas_sucursales: list) -> list:
-    """Filtra las sucursales disponibles según el rol"""
-    if is_admin() or is_gerente():
-        return todas_sucursales
-    
-    sucursal_usuario = get_user_sucursal()
-    
-    if sucursal_usuario is None:
-        st.error("⚠️ Tu usuario no tiene una sucursal asignada. Contacta al administrador.")
-        return []
-    
-    sucursales_filtradas = [s for s in todas_sucursales if s['id'] == sucursal_usuario]
-    
-    if len(sucursales_filtradas) == 0:
-        st.error(f"⚠️ Tu sucursal asignada (ID: {sucursal_usuario}) no existe o está inactiva.")
-    
-    return sucursales_filtradas

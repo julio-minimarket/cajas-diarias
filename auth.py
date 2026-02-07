@@ -3,22 +3,12 @@ import streamlit as st
 from supabase import create_client, Client
 from datetime import date, datetime, timedelta
 import os
-import pytz  # 🌍 AGREGADO: Para manejar timezone de Argentina
+import pytz
 
-# 🌍 NUEVO: Configuración de zona horaria de Argentina
 ARGENTINA_TZ = pytz.timezone('America/Argentina/Buenos_Aires')
 
 def obtener_fecha_argentina():
-    """
-    🌍 NUEVO: Obtiene la fecha actual en zona horaria de Argentina (UTC-3).
-    
-    Evita el problema de desfase cuando el servidor está en UTC.
-    Por ejemplo, a las 21:30 del día 21 en Argentina, el servidor en UTC
-    ya está en el día 22 (00:30 UTC).
-    
-    Returns:
-        date: Fecha actual en Argentina
-    """
+    """Obtiene la fecha actual en zona horaria de Argentina"""
     return datetime.now(ARGENTINA_TZ).date()
 
 def init_supabase() -> Client:
@@ -32,21 +22,61 @@ def init_supabase() -> Client:
     
     return create_client(url, key)
 
+def check_existing_session():
+    """
+    🆕 NUEVO: Verifica si ya hay sesión válida en Supabase
+    Retorna la sesión existente o None
+    """
+    try:
+        supabase = init_supabase()
+        response = supabase.auth.get_session()
+        
+        if response and response.session:
+            return response.session
+        return None
+    except:
+        return None
+
 def login(email: str, password: str):
     """
-    Inicia sesión y guarda datos en session_state
-    Retorna: (success: bool, message: str)
+    Inicia sesión - AHORA CON PROTECCIÓN ANTI-DUPLICADOS
     """
     try:
         supabase = init_supabase()
         
-        # Autenticar usuario
+        # 🆕 NUEVO: Primero verificar si ya hay sesión activa válida
+        existing_session = check_existing_session()
+        if existing_session:
+            # Ya hay sesión, reusarla en lugar de crear nueva
+            user_id = existing_session.user.id
+            profile = supabase.table('user_profiles').select('*').eq('id', user_id).single().execute()
+            
+            st.session_state.user = {
+                'id': user_id,
+                'email': existing_session.user.email,
+                'rol': profile.data['rol'],
+                'nombre': profile.data.get('nombre_completo', existing_session.user.email),
+                'sucursal_asignada': profile.data.get('sucursal_asignada'),
+                'access_token': existing_session.access_token
+            }
+            st.session_state.authenticated = True
+            return True, "✅ Sesión recuperada correctamente"
+        
+        # 🆕 NUEVO: Si no hay sesión, invalidar sesiones previas del usuario
+        # Esto evita acumulación de tokens
+        try:
+            # Intentar sign_out global para este usuario (limpia tokens viejos)
+            supabase.auth.sign_out({"scope": "global"})
+        except:
+            pass  # Si falla, continuar igual
+        
+        # Ahora sí crear nueva sesión
         response = supabase.auth.sign_in_with_password({
             "email": email,
             "password": password
         })
         
-        # Obtener perfil del usuario (con el rol y sucursal)
+        # Obtener perfil del usuario
         user_id = response.user.id
         profile = supabase.table('user_profiles').select('*').eq('id', user_id).single().execute()
         
@@ -70,10 +100,11 @@ def login(email: str, password: str):
         return False, f"❌ Error de autenticación: {error_msg}"
 
 def logout():
-    """Cierra sesión"""
+    """Cierra sesión - AHORA CON LIMPIEZA COMPLETA"""
     try:
         supabase = init_supabase()
-        supabase.auth.sign_out()
+        # 🆕 CAMBIADO: Usar scope global para invalidar TODOS los tokens
+        supabase.auth.sign_out({"scope": "global"})
     except:
         pass
     
@@ -82,8 +113,23 @@ def logout():
         del st.session_state[key]
 
 def is_authenticated():
-    """Verifica si hay un usuario autenticado"""
-    return st.session_state.get('authenticated', False)
+    """Verifica autenticación - AHORA CON VALIDACIÓN DE TOKEN"""
+    # 🆕 NUEVO: Verificar tanto session_state como token válido en Supabase
+    if not st.session_state.get('authenticated', False):
+        return False
+    
+    # Verificar que el token en session_state sigue siendo válido
+    try:
+        supabase = init_supabase()
+        session = supabase.auth.get_session()
+        if not session or not session.session:
+            # Token expirado o inválido, limpiar session_state
+            st.session_state.authenticated = False
+            st.session_state.user = None
+            return False
+        return True
+    except:
+        return False
 
 def get_user_role():
     """Obtiene el rol del usuario actual"""
@@ -108,7 +154,6 @@ def get_user_sucursal():
 def require_auth():
     """
     Protege páginas que requieren autenticación
-    Usar al inicio de cada página
     """
     if not is_authenticated():
         st.warning("⚠️ Debes iniciar sesión para acceder")
@@ -117,10 +162,33 @@ def require_auth():
 
 def show_login_form():
     """
-    Muestra formulario de login
+    Muestra formulario de login - AHORA CON PROTECCIÓN ANTI-SPAM
     """
     st.title("🔐 Sistema de Cajas Diarias")
     st.subheader("Iniciar Sesión")
+    
+    # 🆕 NUEVO: Verificar si ya hay sesión antes de mostrar formulario
+    existing_session = check_existing_session()
+    if existing_session:
+        # Auto-login si hay sesión válida
+        try:
+            supabase = init_supabase()
+            user_id = existing_session.user.id
+            profile = supabase.table('user_profiles').select('*').eq('id', user_id).single().execute()
+            
+            st.session_state.user = {
+                'id': user_id,
+                'email': existing_session.user.email,
+                'rol': profile.data['rol'],
+                'nombre': profile.data.get('nombre_completo', existing_session.user.email),
+                'sucursal_asignada': profile.data.get('sucursal_asignada'),
+                'access_token': existing_session.access_token
+            }
+            st.session_state.authenticated = True
+            st.rerun()
+            return
+        except:
+            pass  # Si falla, mostrar formulario normal
     
     with st.form("login_form"):
         email = st.text_input("📧 Email", placeholder="usuario@cajas.local")
@@ -153,31 +221,23 @@ def show_login_form():
         """)
 
 def puede_cargar_fecha(fecha_seleccionada, rol_usuario):
-    """
-    Valida si el usuario puede cargar una fecha específica
-    Retorna: (puede: bool, mensaje_error: str)
-    """
-    hoy = obtener_fecha_argentina()  # 🌍 CORREGIDO: Usar timezone de Argentina
+    """Valida si el usuario puede cargar una fecha específica"""
+    hoy = obtener_fecha_argentina()
     ayer = hoy - timedelta(days=1)
     
-    # Admin y Gerente pueden cargar cualquier fecha
     if rol_usuario in ['admin', 'gerente']:
         return True, ""
     
-    # Encargados solo hoy o ayer
     if fecha_seleccionada in [hoy, ayer]:
         return True, ""
     else:
         return False, f"⚠️ Solo puedes cargar movimientos de HOY ({hoy.strftime('%d/%m/%Y')}) o AYER ({ayer.strftime('%d/%m/%Y')})"
 
 def obtener_selector_fecha():
-    """
-    Retorna el widget de fecha apropiado según el rol del usuario
-    """
-    hoy = obtener_fecha_argentina()  # 🌍 CORREGIDO: Usar timezone de Argentina
+    """Retorna el widget de fecha apropiado según el rol"""
+    hoy = obtener_fecha_argentina()
     ayer = hoy - timedelta(days=1)
     
-    # Admin y Gerente pueden cargar cualquier fecha
     if is_admin() or is_gerente():
         st.info("🔓 **Modo Administrador/Gerente**: Puedes cargar cualquier fecha")
         return st.date_input("📅 Fecha", value=hoy, key="fecha_admin")
@@ -193,10 +253,7 @@ def obtener_selector_fecha():
         return opciones[seleccion]
 
 def cambiar_password(password_actual: str, password_nueva: str):
-    """
-    Permite al usuario cambiar su contraseña
-    Retorna: (success: bool, message: str)
-    """
+    """Permite al usuario cambiar su contraseña"""
     try:
         supabase = init_supabase()
         user = st.session_state.user
@@ -219,9 +276,7 @@ def cambiar_password(password_actual: str, password_nueva: str):
         return False, f"❌ Error al cambiar contraseña: {str(e)}"
 
 def mostrar_cambio_password():
-    """
-    Widget para cambiar contraseña
-    """
+    """Widget para cambiar contraseña"""
     st.subheader("🔒 Cambiar Contraseña")
     
     with st.form("cambiar_password_form"):
@@ -256,19 +311,15 @@ def mostrar_cambio_password():
                     st.error(message)
 
 def mostrar_info_usuario_sidebar():
-    """
-    Muestra información del usuario en el sidebar
-    """
+    """Muestra información del usuario en el sidebar"""
     with st.sidebar:
         st.markdown("---")
         st.subheader("👤 Usuario")
         user = st.session_state.user
         
-        # Mostrar info
         st.write(f"**{user['nombre']}**")
         st.caption(f"📧 {user['email']}")
         
-        # Mostrar rol con color
         rol = user['rol'].lower()
         if rol == 'admin':
             st.success("🔓 **ADMINISTRADOR**")
@@ -277,18 +328,15 @@ def mostrar_info_usuario_sidebar():
         else:
             st.info("👤 **ENCARGADO**")
         
-        # Mostrar sucursal si tiene
         sucursal_asignada = user.get('sucursal_asignada')
         if sucursal_asignada:
             st.write(f"🏪 Sucursal ID: **{sucursal_asignada}**")
         else:
-            # Solo advertir si es encargado
             if rol == 'encargado':
                 st.warning("⚠️ Sin sucursal asignada")
         
         st.markdown("---")
         
-        # Botones de acción
         if st.button("🔒 Cambiar Contraseña", width="stretch", key="btn_cambiar_pwd"):
             st.session_state.mostrar_cambio_pwd = True
             st.rerun()
@@ -298,49 +346,30 @@ def mostrar_info_usuario_sidebar():
             st.rerun()
 
 def validar_acceso_sucursal(sucursal_id: int) -> bool:
-    """
-    Valida si el usuario puede acceder a una sucursal específica
-    Admin: puede acceder a todas
-    Gerente: puede acceder a todas
-    Encargado: solo a su sucursal asignada
-    """
-    # Admin y Gerente pueden acceder a todas
+    """Valida si el usuario puede acceder a una sucursal específica"""
     if is_admin() or is_gerente():
         return True
     
-    # Encargado: solo su sucursal
     sucursal_usuario = get_user_sucursal()
     if sucursal_usuario is None:
-        return False  # Sin sucursal, no puede acceder
+        return False
     
     return sucursal_id == sucursal_usuario
 
 def filtrar_sucursales_disponibles(todas_sucursales: list) -> list:
-    """
-    Filtra las sucursales disponibles según el rol del usuario
-    Admin: todas las sucursales
-    Gerente: todas las sucursales  
-    Encargado: solo su sucursal asignada
-    
-    🔧 CORREGIDO: Ahora los encargados sin sucursal NO ven todas
-    """
-    # Admin y Gerente pueden ver todas las sucursales
+    """Filtra las sucursales disponibles según el rol"""
     if is_admin() or is_gerente():
         return todas_sucursales
     
-    # Encargado: solo su sucursal asignada
     sucursal_usuario = get_user_sucursal()
     
-    # 🔴 BUG CORREGIDO: Si no tiene sucursal asignada, NO mostrar todas
     if sucursal_usuario is None:
         st.error("⚠️ Tu usuario no tiene una sucursal asignada. Contacta al administrador.")
-        return []  # No puede ver ninguna sucursal
+        return []
     
-    # Filtrar solo la sucursal asignada
     sucursales_filtradas = [s for s in todas_sucursales if s['id'] == sucursal_usuario]
     
-    # Si después del filtro no hay sucursales, algo está mal
     if len(sucursales_filtradas) == 0:
-        st.error(f"⚠️ Tu sucursal asignada (ID: {sucursal_usuario}) no existe o está inactiva. Contacta al administrador.")
+        st.error(f"⚠️ Tu sucursal asignada (ID: {sucursal_usuario}) no existe o está inactiva.")
     
     return sucursales_filtradas

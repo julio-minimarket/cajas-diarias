@@ -103,6 +103,9 @@ st.set_page_config(
 if not auth.is_authenticated():
     auth.show_login_form()
     st.stop()
+    
+# 🆕 LIMPIEZA AUTOMÁTICA: Se ejecuta cada vez que carga la app para usuarios autenticados
+auth.limpiar_tokens_usuario()
 
 # ==================== CONFIGURACIÓN DE SUPABASE ====================
 @st.cache_resource

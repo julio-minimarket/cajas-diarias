@@ -1,4 +1,23 @@
-# auth.py - VERSIÓN ESTABLE (Sin limpieza automática problemática)
+# auth.py
+# ============================================================
+# CHANGELOG v2.1 - Optimizacion de tokens (Feb 2025)
+# ------------------------------------------------------------
+# 1. login(): Cambiado flujo - primero login, despues sign_out("others")
+#    Antes: sign_out("global") ANTES del login - mataba la sesion actual
+#    Ahora: login primero, despues sign_out("others") - mata las viejas, conserva la nueva
+#
+# 2. cambiar_password(): Agregado sign_out("others") despues de verificar
+#    Antes: sign_in para verificar creaba un token extra sin limpiar
+#    Ahora: limpia tokens sobrantes despues de verificar
+#
+# 3. Nuevo: Control de expiracion de sesion (SESSION_TIMEOUT_HOURS)
+#    Si la sesion tiene mas de 12 horas, fuerza re-login
+#    Esto evita sesiones "zombi" que acumulan tokens indefinidamente
+#
+# 4. init_supabase(): Agregado cache con st.cache_resource
+#    Evita crear multiples clientes Supabase por recarga de pagina
+# ============================================================
+
 import streamlit as st
 from supabase import create_client, Client
 from datetime import date, datetime, timedelta
@@ -7,14 +26,21 @@ import pytz
 
 ARGENTINA_TZ = pytz.timezone('America/Argentina/Buenos_Aires')
 
+# Tiempo maximo de sesion antes de forzar re-login (en horas)
+SESSION_TIMEOUT_HOURS = 12
+
 
 def obtener_fecha_argentina():
     """Obtiene la fecha actual en zona horaria de Argentina"""
     return datetime.now(ARGENTINA_TZ).date()
 
 
+@st.cache_resource
 def init_supabase() -> Client:
-    """Inicializa cliente de Supabase"""
+    """
+    Inicializa cliente de Supabase (cacheado para no recrear en cada rerun).
+    MEJORA: @st.cache_resource evita crear multiples conexiones por recarga.
+    """
     if hasattr(st, "secrets") and "supabase" in st.secrets:
         url = st.secrets["supabase"]["url"]
         key = st.secrets["supabase"]["key"]
@@ -27,28 +53,35 @@ def init_supabase() -> Client:
 
 def login(email: str, password: str):
     """
-    Inicia sesion con proteccion anti-duplicados
+    Inicia sesion con proteccion anti-duplicados MEJORADA.
+    
+    CAMBIO CLAVE: Antes haciamos sign_out("global") ANTES del login,
+    lo que no servia porque no habia sesion activa en ese cliente.
+    Ahora: primero login (crea 1 token), despues sign_out("others")
+    que invalida TODOS los tokens anteriores de ese usuario,
+    conservando solo el token de la sesion actual.
     """
     try:
         supabase = init_supabase()
         
-        # ANTI-DUPLICADO: Invalidar sesiones previas antes de crear nueva
-        try:
-            supabase.auth.sign_out({"scope": "global"})
-        except:
-            pass
-        
-        # Crear nueva sesion
+        # 1. Crear nueva sesion (genera 1 token nuevo)
         response = supabase.auth.sign_in_with_password({
             "email": email,
             "password": password
         })
         
-        # Obtener perfil del usuario
+        # 2. ANTI-DUPLICADO: Invalidar todas las sesiones ANTERIORES
+        #    "others" = mata todos los tokens EXCEPTO el actual
+        try:
+            supabase.auth.sign_out({"scope": "others"})
+        except:
+            pass  # Si falla, el cron de limpieza se encarga
+        
+        # 3. Obtener perfil del usuario
         user_id = response.user.id
         profile = supabase.table('user_profiles').select('*').eq('id', user_id).single().execute()
         
-        # Guardar en session_state
+        # 4. Guardar en session_state (incluye timestamp para control de expiracion)
         st.session_state.user = {
             'id': user_id,
             'email': response.user.email,
@@ -59,6 +92,7 @@ def login(email: str, password: str):
         }
         
         st.session_state.authenticated = True
+        st.session_state.login_timestamp = datetime.now(ARGENTINA_TZ).isoformat()
         return True, "Sesion iniciada correctamente"
         
     except Exception as e:
@@ -83,8 +117,32 @@ def logout():
 
 
 def is_authenticated():
-    """Verifica si hay usuario autenticado"""
-    return st.session_state.get('authenticated', False)
+    """
+    Verifica si hay usuario autenticado Y si la sesion no expiro.
+    
+    NUEVO: Si la sesion tiene mas de SESSION_TIMEOUT_HOURS horas,
+    se considera expirada y fuerza re-login. Esto evita que usuarios
+    que dejan la pestana abierta acumulen tokens indefinidamente.
+    """
+    if not st.session_state.get('authenticated', False):
+        return False
+    
+    # Verificar expiracion de sesion
+    login_time = st.session_state.get('login_timestamp')
+    if login_time:
+        try:
+            login_dt = datetime.fromisoformat(login_time)
+            ahora = datetime.now(ARGENTINA_TZ)
+            horas_transcurridas = (ahora - login_dt).total_seconds() / 3600
+            
+            if horas_transcurridas > SESSION_TIMEOUT_HOURS:
+                # Sesion expirada - forzar re-login
+                logout()
+                return False
+        except:
+            pass  # Si falla el parseo, dejamos pasar
+    
+    return True
 
 
 def get_user_role():
@@ -182,11 +240,17 @@ def obtener_selector_fecha():
 
 
 def cambiar_password(password_actual: str, password_nueva: str):
-    """Permite al usuario cambiar su contrasena"""
+    """
+    Permite al usuario cambiar su contrasena.
+    
+    MEJORA: Agregado sign_out("others") despues de verificar password.
+    Antes, el sign_in de verificacion creaba un token extra sin limpiarlo.
+    """
     try:
         supabase = init_supabase()
         user = st.session_state.user
         
+        # Verificar password actual (esto crea un token temporal)
         try:
             supabase.auth.sign_in_with_password({
                 "email": user['email'],
@@ -195,7 +259,15 @@ def cambiar_password(password_actual: str, password_nueva: str):
         except:
             return False, "La contrasena actual es incorrecta"
         
+        # Cambiar la contrasena
         supabase.auth.update_user({"password": password_nueva})
+        
+        # Limpiar el token extra que creo el sign_in de verificacion
+        try:
+            supabase.auth.sign_out({"scope": "others"})
+        except:
+            pass
+        
         return True, "Contrasena actualizada exitosamente"
         
     except Exception as e:

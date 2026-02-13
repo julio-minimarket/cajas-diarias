@@ -1,4 +1,4 @@
-# auth.py
+# auth.py - VERSIÓN ESTABLE (Sin limpieza automática problemática)
 import streamlit as st
 from supabase import create_client, Client
 from datetime import date, datetime, timedelta
@@ -25,107 +25,14 @@ def init_supabase() -> Client:
     return create_client(url, key)
 
 
-def limpiar_tokens_usuario(user_id: str = None):
-    """
-    🆕 Limpia tokens antiguos del usuario, manteniendo solo los 2 más recientes.
-    Se ejecuta automáticamente al verificar autenticación.
-    """
-    try:
-        supabase = init_supabase()
-        
-        # Si no se pasa user_id, obtenerlo de la sesión actual
-        if not user_id:
-            session = supabase.auth.get_session()
-            if not session or not session.session:
-                return
-            user_id = session.user.id
-        
-        # Obtener todos los tokens del usuario ordenados por fecha
-        tokens_response = supabase.table("auth.refresh_tokens")\
-            .select("id, created_at")\
-            .eq("user_id", user_id)\
-            .order("created_at", desc=True)\
-            .execute()
-        
-        if not tokens_response.data or len(tokens_response.data) <= 2:
-            return  # No hay nada que limpiar
-        
-        # Mantener solo los 2 más recientes
-        tokens_a_borrar = [t['id'] for t in tokens_response.data[2:]]
-        
-        if tokens_a_borrar:
-            # Borrar en lotes de 100 para no sobrecargar
-            for i in range(0, len(tokens_a_borrar), 100):
-                lote = tokens_a_borrar[i:i+100]
-                # Usar delete con in_ para borrar el lote
-                supabase.table("auth.refresh_tokens")\
-                    .delete()\
-                    .in_("id", lote)\
-                    .execute()
-                    
-    except Exception as e:
-        # Silenciar errores para no afectar la UX, pero loggear
-        print(f"[Auth Cleanup] Error limpiando tokens: {e}")
-        pass
-
-
-def verificar_sesion_supabase():
-    """
-    🆕 Verifica si la sesión de Supabase es válida y sincroniza con session_state.
-    Retorna True si hay sesión válida.
-    """
-    try:
-        supabase = init_supabase()
-        session = supabase.auth.get_session()
-        
-        if session and session.session:
-            # Hay sesión válida en Supabase
-            # Limpiar tokens excesivos automáticamente
-            limpiar_tokens_usuario(session.user.id)
-            
-            # Si no está en session_state, reconstruirlo
-            if not st.session_state.get('authenticated', False):
-                try:
-                    profile = supabase.table('user_profiles')\
-                        .select('*')\
-                        .eq('id', session.user.id)\
-                        .single()\
-                        .execute()
-                    
-                    if profile.data:
-                        st.session_state.user = {
-                            'id': session.user.id,
-                            'email': session.user.email,
-                            'rol': profile.data['rol'],
-                            'nombre': profile.data.get('nombre_completo', session.user.email),
-                            'sucursal_asignada': profile.data.get('sucursal_asignada'),
-                            'access_token': session.session.access_token
-                        }
-                        st.session_state.authenticated = True
-                except:
-                    pass
-            
-            return True
-        else:
-            # No hay sesión en Supabase pero sí en Streamlit → Limpiar Streamlit
-            if st.session_state.get('authenticated', False):
-                st.session_state.authenticated = False
-                st.session_state.user = None
-            return False
-            
-    except Exception as e:
-        print(f"[Auth] Error verificando sesión: {e}")
-        return st.session_state.get('authenticated', False)
-
-
 def login(email: str, password: str):
     """
-    Inicia sesion con proteccion anti-duplicados y limpieza automática
+    Inicia sesion con proteccion anti-duplicados
     """
     try:
         supabase = init_supabase()
         
-        # 🆕 ANTI-DUPLICADO: Invalidar sesiones previas antes de crear nueva
+        # ANTI-DUPLICADO: Invalidar sesiones previas antes de crear nueva
         try:
             supabase.auth.sign_out({"scope": "global"})
         except:
@@ -152,10 +59,6 @@ def login(email: str, password: str):
         }
         
         st.session_state.authenticated = True
-        
-        # 🆕 Limpiar tokens automáticamente después de login exitoso
-        limpiar_tokens_usuario(user_id)
-        
         return True, "Sesion iniciada correctamente"
         
     except Exception as e:
@@ -180,15 +83,8 @@ def logout():
 
 
 def is_authenticated():
-    """
-    🆕 Verifica autenticación validando contra Supabase, no solo session_state
-    """
-    # Primero verificar session_state (rápido)
-    if not st.session_state.get('authenticated', False):
-        return False
-    
-    # Luego verificar que la sesión de Supabase sigue válida y limpiar tokens
-    return verificar_sesion_supabase()
+    """Verifica si hay usuario autenticado"""
+    return st.session_state.get('authenticated', False)
 
 
 def get_user_role():

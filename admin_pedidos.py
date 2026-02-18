@@ -79,7 +79,7 @@ def abm_productos():
                 st.dataframe(
                     df[cols_mostrar],
                     hide_index=True,
-                    use_container_width=True,
+                    width="stretch",
                     column_config={
                         'precio_referencia': st.column_config.NumberColumn(
                             'Precio Ref.',
@@ -154,7 +154,7 @@ def abm_productos():
             
             observaciones = st.text_area("Observaciones", height=100)
             
-            submitted = st.form_submit_button("✅ Guardar Producto", use_container_width=True)
+            submitted = st.form_submit_button("✅ Guardar Producto", width="stretch")
             
             if submitted:
                 if not codigo or not nombre:
@@ -265,11 +265,11 @@ def abm_productos():
             col_btn1, col_btn2, col_btn3 = st.columns(3)
             
             with col_btn1:
-                guardar = st.form_submit_button("💾 Guardar Cambios", use_container_width=True)
+                guardar = st.form_submit_button("💾 Guardar Cambios", width="stretch")
             with col_btn2:
-                desactivar = st.form_submit_button("🔒 Desactivar", use_container_width=True)
+                desactivar = st.form_submit_button("🔒 Desactivar", width="stretch")
             with col_btn3:
-                eliminar = st.form_submit_button("🗑️ Eliminar", use_container_width=True, type="secondary")
+                eliminar = st.form_submit_button("🗑️ Eliminar", width="stretch", type="secondary")
             
             if guardar:
                 try:
@@ -345,7 +345,7 @@ def abm_proveedores():
                 cols_mostrar = ['id', 'codigo_proveedor', 'razon_social', 'telefono', 
                                'email', 'cuit', 'forma_pago', 'activo']
                 
-                st.dataframe(df[cols_mostrar], hide_index=True, use_container_width=True)
+                st.dataframe(df[cols_mostrar], hide_index=True, width="stretch")
                 st.metric("Total proveedores", len(df))
             else:
                 st.info("No hay proveedores registrados")
@@ -373,7 +373,7 @@ def abm_proveedores():
             direccion = st.text_input("Dirección", placeholder="Av. Roca 1250")
             observaciones = st.text_area("Observaciones", height=100)
             
-            submitted = st.form_submit_button("✅ Guardar Proveedor", use_container_width=True)
+            submitted = st.form_submit_button("✅ Guardar Proveedor", width="stretch")
             
             if submitted:
                 if not codigo or not razon_social:
@@ -543,7 +543,7 @@ def ver_auditoria():
                 'Motivo': item.get('motivo', '-')
             } for item in result.data])
             
-            st.dataframe(df, hide_index=True, use_container_width=True)
+            st.dataframe(df, hide_index=True, width="stretch")
         else:
             st.info("No hay registros de auditoría")
             

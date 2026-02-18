@@ -254,13 +254,13 @@ def pantalla_nuevo_pedido():
         with col1:
             submitted = st.form_submit_button(
                 "✅ Enviar Pedido",
-                use_container_width=True,
+                width="stretch",
                 type="primary"
             )
         with col2:
             cancel = st.form_submit_button(
                 "❌ Cancelar",
-                use_container_width=True
+                width="stretch"
             )
         
         if cancel:
@@ -330,7 +330,7 @@ def pantalla_mis_pedidos():
             
             if items_data:
                 df = pd.DataFrame(items_data)
-                st.dataframe(df, hide_index=True, use_container_width=True)
+                st.dataframe(df, hide_index=True, width="stretch")
 
 def pantalla_revisar_pedidos():
     """Pantalla para que admin revise y procese pedidos"""
@@ -432,11 +432,11 @@ def pantalla_revisar_pedidos():
         with col1:
             submitted = st.form_submit_button(
                 "✅ Confirmar y Generar Documentos",
-                use_container_width=True,
+                width="stretch",
                 type="primary"
             )
         with col2:
-            cancel = st.form_submit_button("❌ Cancelar", use_container_width=True)
+            cancel = st.form_submit_button("❌ Cancelar", width="stretch")
         
         if cancel:
             st.rerun()
@@ -561,7 +561,7 @@ def main():
                         'Motivo': item.get('motivo', '-')
                     } for item in result.data])
                     
-                    st.dataframe(df, hide_index=True, use_container_width=True)
+                    st.dataframe(df, hide_index=True, width="stretch")
                     st.caption("Mostrando últimos 50 registros")
                 else:
                     st.info("No hay registros de auditoría aún")

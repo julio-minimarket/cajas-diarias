@@ -241,7 +241,7 @@ def main(supabase):
                         'importe_formateado': 'Importe'
                     })
                     
-                    st.dataframe(display_df, use_container_width=True, hide_index=True)
+                    st.dataframe(display_df, width="stretch", hide_index=True)
                 
                 # Errores
                 if errores:
@@ -359,7 +359,7 @@ def main(supabase):
                         st.markdown("#### 📋 Resultados")
                         display_df = df[['op_number', 'cuit', 'razon_social', 'monto_formateado', 'fecha_upload']].copy()
                         display_df.columns = ['OP', 'CUIT', 'Razón Social', 'Monto', 'Fecha']
-                        st.dataframe(display_df, use_container_width=True, hide_index=True)
+                        st.dataframe(display_df, width="stretch", hide_index=True)
                         
                         st.markdown("---")
                         
@@ -377,7 +377,7 @@ def main(supabase):
                                 "🔗 Abrir PDF",
                                 url_seleccionada,
                                 type="primary",
-                                use_container_width=True
+                                width="stretch"
                             )
                         with col2:
                             st.caption(f"📄 {df.iloc[idx]['archivo_nombre']}")
@@ -426,7 +426,7 @@ def main(supabase):
                                 file_name=f"transferencias_{fecha_descarga.strftime('%Y%m%d')}.zip",
                                 mime="application/zip",
                                 type="primary",
-                                use_container_width=True,
+                                width="stretch",
                                 key="download_zip_dia_tab2"
                             )
                         
@@ -462,7 +462,7 @@ def main(supabase):
                                 data=excel_buffer,
                                 file_name=f"transferencias_{datetime.now().strftime('%Y%m%d')}.xlsx",
                                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                use_container_width=True,
+                                width="stretch",
                                 key="download_excel_tab2"
                             )
                         
@@ -475,7 +475,7 @@ def main(supabase):
                                 data=urls_text,
                                 file_name=f"urls_{datetime.now().strftime('%Y%m%d')}.txt",
                                 mime="text/plain",
-                                use_container_width=True,
+                                width="stretch",
                                 key="download_urls_tab2"
                             )
                     

@@ -1128,7 +1128,7 @@ def mostrar_tab_importacion(supabase, sucursales, mes_seleccionado, anio_selecci
                 st.dataframe(
                     df_mapeadas[['CSV', 'Sucursal', 'Registros', 'Total Formateado']],
                     hide_index=True,
-                    use_container_width=True
+                    width="stretch"
                 )
             
             # Mostrar empresas sin mapear
@@ -1141,7 +1141,7 @@ def mostrar_tab_importacion(supabase, sucursales, mes_seleccionado, anio_selecci
                 st.dataframe(
                     df_sin_mapear[['Empresa', 'Registros', 'Total Formateado']],
                     hide_index=True,
-                    use_container_width=True
+                    width="stretch"
                 )
                 
                 st.warning("💡 **Solución**: Crea estas sucursales en el sistema o ajusta los nombres en el CSV para que coincidan.")
@@ -1231,7 +1231,7 @@ def mostrar_tab_importacion(supabase, sucursales, mes_seleccionado, anio_selecci
                 st.error("❌ No se puede importar porque ninguna empresa fue mapeada correctamente.")
                 st.info("💡 Crea las sucursales en el sistema o ajusta los nombres en el CSV.")
             else:
-                if st.button("💾 Guardar en Base de Datos", type="primary", use_container_width=True, disabled=not puede_importar):
+                if st.button("💾 Guardar en Base de Datos", type="primary", width="stretch", disabled=not puede_importar):
                     with st.spinner("Guardando gastos en la base de datos..."):
                         resultado = guardar_gastos_en_db(
                             supabase, 
@@ -1322,7 +1322,7 @@ def mostrar_tab_analisis(supabase, sucursales, mes_seleccionado, anio_selecciona
         st.subheader("📊 Análisis del Período")
     
     with col_refresh:
-        if st.button("🔄 Refrescar", key="refresh_analisis", use_container_width=True, help="Actualizar datos desde la base de datos"):
+        if st.button("🔄 Refrescar", key="refresh_analisis", width="stretch", help="Actualizar datos desde la base de datos"):
             limpiar_cache_pl_simples()
             st.success("✅ Datos actualizados")
             st.rerun()
@@ -1673,7 +1673,7 @@ def mostrar_tab_analisis(supabase, sucursales, mes_seleccionado, anio_selecciona
             data=excel_file,
             file_name=f"Estado_Resultados_{sucursal_nombre}_{mes_seleccionado}_{anio_seleccionado}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True,
+            width="stretch",
             key="download_analisis"
         )
 
@@ -1689,7 +1689,7 @@ def mostrar_estado_resultados_granular(supabase, sucursales, mes_seleccionado, a
         st.subheader("📊 Estado de Resultados Granular")
     
     with col_refresh:
-        if st.button("🔄 Refrescar", key="refresh_granular", use_container_width=True):
+        if st.button("🔄 Refrescar", key="refresh_granular", width="stretch"):
             limpiar_cache_pl_simples()
             st.success("✅ Datos actualizados")
             st.rerun()
@@ -2163,7 +2163,7 @@ def mostrar_tab_evolucion(supabase, sucursales, mes_seleccionado, anio_seleccion
         height=500
     )
     
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
     
     # Tabla de datos
     st.markdown("### 📋 Datos Detallados")
@@ -2178,7 +2178,7 @@ def mostrar_tab_evolucion(supabase, sucursales, mes_seleccionado, anio_seleccion
     
     df_display['Margen %'] = df_display['Margen %'].apply(lambda x: f"{x:.2f}%")
     
-    st.dataframe(df_display, hide_index=True, use_container_width=True)
+    st.dataframe(df_display, hide_index=True, width="stretch")
 
 
 def main(supabase):

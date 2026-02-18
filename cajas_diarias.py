@@ -615,7 +615,7 @@ def generar_resumen_diario_optimizado(df: pd.DataFrame, fecha_desde, fecha_hasta
             how='left'
         )
     
-    resultado['cantidad_tickets'] = resultado['cantidad_tickets'].fillna(0).astype(int)
+    resultado['cantidad_tickets'] = resultado['cantidad_tickets'].fillna(0).infer_objects(copy=False).astype(int)
     
     # Calcular ticket promedio
     resultado['ticket_promedio'] = resultado.apply(

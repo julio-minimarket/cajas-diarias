@@ -52,6 +52,7 @@ import eventos
 import cuentas_corrientes  # Módulo de Cuentas Corrientes
 import transferencias  # Módulo de Transferencias Bancarias
 import pl_simples  # Módulo de P&L Simples - Informe Mensual de Resultados
+from modules.novedades_personal.main import render_modulo_novedades  # Módulo RRHH
 
 from datetime import date, datetime
 import pytz
@@ -814,15 +815,16 @@ if auth.is_admin():
         "📝 Carga", 
         "📊 Resumen del Día", 
         "📈 Reportes",
-        "📊 P&L Simples",  # ✅ AGREGADO: Módulo de análisis de P&L
+        "📊 P&L Simples",
         "💼 CRM y Conciliación",
         "🔧 Mantenimiento",
         "🎭 Eventos",
         "💳 Cuentas Ctes.",
-        "💸 Transferencias"
+        "💸 Transferencias",
+        "👥 Novedades Personal",  # ← NUEVO
     ]
 else:
-    tab_options = ["📝 Carga", "📊 Resumen del Día"]
+    tab_options = ["📝 Carga", "📊 Resumen del Día", "👥 Novedades Personal"]  # ← NUEVO
 
 # Radio button horizontal que simula tabs
 active_tab = st.radio(
@@ -3237,3 +3239,6 @@ elif active_tab == "💳 Cuentas Ctes." and auth.is_admin():
 # ==================== TAB 9: TRANSFERENCIAS ====================
 elif active_tab == "💸 Transferencias" and auth.is_admin():
         transferencias.main(supabase)
+# ==================== TAB 10: NOVEDADES DE PERSONAL ====================
+elif active_tab == "👥 Novedades Personal":
+        render_modulo_novedades()

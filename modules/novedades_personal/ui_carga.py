@@ -83,19 +83,27 @@ def pantalla_carga_diaria():
     if ya_tiene:
         st.info("ℹ️ Este empleado ya tiene novedades cargadas hoy. Al guardar se reemplazarán.")
 
-    # ── Filas de detalle de novedad ──────────────────────────
+    # ── Filas dinámicas de novedad (una fila + botón agregar) ──
     st.markdown("**Novedades a cargar:**")
 
-    NUM_FILAS = 4
+    # Inicializar contador de filas en session_state
+    key_filas = f"num_filas_novedad_{empleado['id']}"
+    if key_filas not in st.session_state:
+        st.session_state[key_filas] = 1
+
     detalles_form = []
 
-    for i in range(NUM_FILAS):
+    for i in range(st.session_state[key_filas]):
         cols = st.columns([3, 1.5, 1.5, 3])
         tipo_sel = cols[0].selectbox(
-            "Tipo", ["— ninguna —"] + list(opciones_tipo.keys()),
-            key=f"tipo_{i}"
+            f"Tipo novedad {i+1}" if st.session_state[key_filas] > 1 else "Tipo novedad",
+            ["— ninguna —"] + list(opciones_tipo.keys()),
+            key=f"tipo_{empleado['id']}_{i}"
         )
         if tipo_sel == "— ninguna —":
+            cols[1].empty()
+            cols[2].empty()
+            cols[3].empty()
             continue
 
         tipo_data = opciones_tipo[tipo_sel]
@@ -103,16 +111,18 @@ def pantalla_carga_diaria():
         importe  = None
 
         if tipo_data["requiere_cantidad"]:
-            cantidad = cols[1].number_input("Cantidad", min_value=0.0, step=0.5, key=f"cant_{i}")
+            cantidad = cols[1].number_input("Cantidad (hs)", min_value=0.0, step=0.5,
+                                            key=f"cant_{empleado['id']}_{i}")
         else:
             cols[1].empty()
 
         if tipo_data["requiere_importe"]:
-            importe = cols[2].number_input("Importe $", min_value=0.0, step=100.0, key=f"imp_{i}")
+            importe = cols[2].number_input("Importe $", min_value=0.0, step=100.0,
+                                           key=f"imp_{empleado['id']}_{i}")
         else:
             cols[2].empty()
 
-        observaciones = cols[3].text_input("Obs.", key=f"obs_{i}")
+        observaciones = cols[3].text_input("Observaciones", key=f"obs_{empleado['id']}_{i}")
 
         detalles_form.append({
             "tipo_novedad_id": tipo_data["id"],
@@ -120,6 +130,12 @@ def pantalla_carga_diaria():
             "importe":         importe,
             "observaciones":   observaciones,
         })
+
+    # Botón para agregar más filas (máximo 5)
+    if st.session_state[key_filas] < 5:
+        if st.button("➕ Agregar otra novedad", key=f"add_fila_{empleado['id']}"):
+            st.session_state[key_filas] += 1
+            st.rerun()
 
     # ── Botones de acción ────────────────────────────────────
     col_guardar, col_eliminar, _ = st.columns([2, 2, 4])
@@ -144,6 +160,10 @@ def _guardar(empleado, sucursal_id, fecha, usuario, detalles):
             detalles=detalles,
         )
         st.success(f"✅ Novedades guardadas correctamente (ID: {resultado['novedad_id']})")
+        # Resetear contador de filas
+        for k in list(st.session_state.keys()):
+            if k.startswith("num_filas_novedad_"):
+                del st.session_state[k]
         st.rerun()
     except services.NovedadError as e:
         st.error(f"❌ {e}")
@@ -155,6 +175,9 @@ def _eliminar(empleado, fecha):
     try:
         services.eliminar_novedad_empleado_fecha(empleado["id"], fecha)
         st.success("🗑️ Novedades eliminadas.")
+        for k in list(st.session_state.keys()):
+            if k.startswith("num_filas_novedad_"):
+                del st.session_state[k]
         st.rerun()
     except services.NovedadError as e:
         st.error(f"❌ {e}")

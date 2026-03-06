@@ -59,6 +59,13 @@ def pantalla_carga_diaria():
     novedades_hoy = queries.get_novedades_del_dia(sucursal_id, fecha)
     empleados_con_novedad = {n["empleado_id"] for n in novedades_hoy}
 
+    # Guardar snapshot al cargar la página (no se actualiza al guardar)
+    # Así el aviso solo aparece si el empleado YA tenía novedades antes de esta sesión
+    key_snapshot = f"snapshot_novedades_{sucursal_id}_{fecha}"
+    if key_snapshot not in st.session_state:
+        st.session_state[key_snapshot] = set(empleados_con_novedad)
+    snapshot_previo = st.session_state[key_snapshot]
+
     st.subheader(f"Empleados — {sucursal_nombre} — {fecha.strftime('%d/%m/%Y')}")
 
     # ── Tabla resumen del día ────────────────────────────────
@@ -80,7 +87,8 @@ def pantalla_carga_diaria():
     empleado = opciones_emp[empleado_label]
     ya_tiene = empleado["id"] in empleados_con_novedad
 
-    if ya_tiene:
+    # Solo mostrar aviso si tenía novedades ANTES de esta sesión de carga
+    if empleado["id"] in snapshot_previo:
         st.info("ℹ️ Este empleado ya tiene novedades cargadas hoy. Al guardar se reemplazarán.")
 
     # ── Filas dinámicas de novedad (una fila + botón agregar) ──
@@ -160,9 +168,9 @@ def _guardar(empleado, sucursal_id, fecha, usuario, detalles):
             detalles=detalles,
         )
         st.success(f"✅ Novedades guardadas correctamente (ID: {resultado['novedad_id']})")
-        # Resetear contador de filas
+        # Resetear contador de filas y snapshot
         for k in list(st.session_state.keys()):
-            if k.startswith("num_filas_novedad_"):
+            if k.startswith("num_filas_novedad_") or k.startswith("snapshot_novedades_"):
                 del st.session_state[k]
         st.rerun()
     except services.NovedadError as e:
@@ -176,7 +184,7 @@ def _eliminar(empleado, fecha):
         services.eliminar_novedad_empleado_fecha(empleado["id"], fecha)
         st.success("🗑️ Novedades eliminadas.")
         for k in list(st.session_state.keys()):
-            if k.startswith("num_filas_novedad_"):
+            if k.startswith("num_filas_novedad_") or k.startswith("snapshot_novedades_"):
                 del st.session_state[k]
         st.rerun()
     except services.NovedadError as e:

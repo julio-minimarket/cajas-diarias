@@ -85,8 +85,9 @@ def pantalla_carga_diaria():
     opciones_emp = {_PLACEHOLDER_EMP: None} | {
         f"{e['apellido']}, {e['nombre']}": e for e in empleados
     }
+    _sel_ver = st.session_state.get("_emp_sel_ver", 0)
     empleado_label = st.selectbox("Empleado", list(opciones_emp.keys()),
-                                  key="sel_empleado_carga")
+                                  key=f"sel_empleado_carga_{_sel_ver}")
 
     if empleado_label == _PLACEHOLDER_EMP:
         st.info("Seleccioná un empleado del listado para cargar sus novedades.")
@@ -180,7 +181,7 @@ def _guardar(empleado, sucursal_id, fecha, usuario, detalles):
         for k in list(st.session_state.keys()):
             if k.startswith("num_filas_novedad_") or k.startswith("snapshot_novedades_"):
                 del st.session_state[k]
-        st.session_state["sel_empleado_carga"] = _PLACEHOLDER_EMP
+        st.session_state["_emp_sel_ver"] = st.session_state.get("_emp_sel_ver", 0) + 1
         st.rerun()
     except services.NovedadError as e:
         st.error(f"❌ {e}")
@@ -195,7 +196,7 @@ def _eliminar(empleado, fecha):
         for k in list(st.session_state.keys()):
             if k.startswith("num_filas_novedad_") or k.startswith("snapshot_novedades_"):
                 del st.session_state[k]
-        st.session_state["sel_empleado_carga"] = _PLACEHOLDER_EMP
+        st.session_state["_emp_sel_ver"] = st.session_state.get("_emp_sel_ver", 0) + 1
         st.rerun()
     except services.NovedadError as e:
         st.error(f"❌ {e}")

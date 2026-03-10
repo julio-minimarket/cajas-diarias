@@ -80,14 +80,21 @@ def pantalla_carga_diaria():
     # ── Formulario para cargar/editar novedad ────────────────
     st.subheader("➕ Cargar / Editar Novedad")
 
-    opciones_emp = {
+    _PLACEHOLDER = "— Seleccionar empleado —"
+    opciones_emp = {_PLACEHOLDER: None} | {
         f"{e['apellido']}, {e['nombre']}": e for e in empleados
     }
-    empleado_label = st.selectbox("Empleado", list(opciones_emp.keys()))
+    empleado_label = st.selectbox("Empleado", list(opciones_emp.keys()),
+                                  key="sel_empleado_carga")
+
+    if empleado_label == _PLACEHOLDER:
+        st.info("Seleccioná un empleado del listado para cargar sus novedades.")
+        return
+
     empleado = opciones_emp[empleado_label]
     ya_tiene = empleado["id"] in empleados_con_novedad
 
-    # Solo mostrar aviso si tenía novedades ANTES de esta sesión de carga
+    # Aviso solo si el empleado YA tenía novedades antes de esta sesión
     if empleado["id"] in snapshot_previo:
         st.info("ℹ️ Este empleado ya tiene novedades cargadas hoy. Al guardar se reemplazarán.")
 
@@ -172,6 +179,7 @@ def _guardar(empleado, sucursal_id, fecha, usuario, detalles):
         for k in list(st.session_state.keys()):
             if k.startswith("num_filas_novedad_") or k.startswith("snapshot_novedades_"):
                 del st.session_state[k]
+        st.session_state.pop("sel_empleado_carga", None)
         st.rerun()
     except services.NovedadError as e:
         st.error(f"❌ {e}")
@@ -186,6 +194,7 @@ def _eliminar(empleado, fecha):
         for k in list(st.session_state.keys()):
             if k.startswith("num_filas_novedad_") or k.startswith("snapshot_novedades_"):
                 del st.session_state[k]
+        st.session_state.pop("sel_empleado_carga", None)
         st.rerun()
     except services.NovedadError as e:
         st.error(f"❌ {e}")

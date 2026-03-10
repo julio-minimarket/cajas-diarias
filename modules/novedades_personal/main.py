@@ -35,6 +35,7 @@ from .ui_reportes import (
     pantalla_prelistado_mensual,
     pantalla_informe_mensual,
     pantalla_administracion,
+    pantalla_reporte_pdf,
 )
 
 
@@ -55,6 +56,7 @@ def render_modulo_novedades():
         "🏢 Por Sucursal":           pantalla_novedades_sucursal,
         "📑 Prelistado Mensual":     pantalla_prelistado_mensual,
         "📊 Informe Mensual":        pantalla_informe_mensual,
+        "📄 Reporte PDF":            pantalla_reporte_pdf,
         "⚙️ Administración":         pantalla_administracion,
     }
 

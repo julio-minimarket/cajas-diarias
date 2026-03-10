@@ -239,3 +239,44 @@ def set_configuracion(clave: str, valor: str):
         "valor": valor,
         "updated_at": "now()",
     }).execute()
+
+
+# ══════════════════════════════════════════════════════════════
+# QUERIES CONSOLIDADAS (TODAS LAS SUCURSALES)
+# ══════════════════════════════════════════════════════════════
+
+def get_prelistado_todas_sucursales(periodo: str) -> list[dict]:
+    """
+    Resumen mensual de TODAS las sucursales para un período.
+    Sin filtro de sucursal_id — usado para el reporte PDF consolidado.
+    """
+    resp = (
+        get_supabase()
+        .table("v_resumen_mensual")
+        .select("*")
+        .eq("periodo", periodo)
+        .order("sucursal_nombre, empleado_nombre_completo, tipo_novedad")
+        .execute()
+    )
+    return resp.data or []
+
+
+def get_novedades_todas_sucursales_mes(periodo: str) -> list[dict]:
+    """
+    Detalle día a día de TODAS las sucursales para un período YYYY-MM.
+    Sin filtro de sucursal_id — usado para el reporte PDF consolidado.
+    """
+    import calendar as _calendar
+    anio, mes = int(periodo[:4]), int(periodo[5:7])
+    fecha_desde = f"{periodo}-01"
+    fecha_hasta = f"{anio}-{mes:02d}-{_calendar.monthrange(anio, mes)[1]:02d}"
+    resp = (
+        get_supabase()
+        .table("v_novedades_completas")
+        .select("*")
+        .gte("fecha", fecha_desde)
+        .lte("fecha", fecha_hasta)
+        .order("sucursal_nombre, fecha, apellido")
+        .execute()
+    )
+    return resp.data or []

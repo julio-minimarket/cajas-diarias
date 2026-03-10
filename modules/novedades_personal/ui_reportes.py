@@ -290,3 +290,84 @@ def pantalla_administracion():
             services.reabrir_periodo()
             st.success("✅ Cierre eliminado.")
             st.rerun()
+
+
+# ══════════════════════════════════════════════════════════════
+# REPORTE PDF MENSUAL
+# ══════════════════════════════════════════════════════════════
+
+def _periodos_ultimos_12() -> list[str]:
+    """Devuelve los últimos 12 períodos en formato YYYY-MM."""
+    hoy = date.today()
+    periodos = []
+    for i in range(12):
+        anio, mes = hoy.year, hoy.month - i
+        while mes <= 0:
+            mes += 12
+            anio -= 1
+        periodos.append(f"{anio}-{mes:02d}")
+    return periodos
+
+
+def pantalla_reporte_pdf():
+    st.header("📄 Reporte PDF Mensual")
+    st.caption("Generá el reporte mensual de novedades para enviar a la oficina de liquidación de sueldos.")
+
+    todas = queries.get_sucursales_activas()
+    sucursales = auth.filtrar_sucursales_disponibles(todas)
+    if not sucursales:
+        return
+
+    # Selector de sucursal — admin/gerente puede elegir TODAS
+    if auth.is_admin() or auth.is_gerente():
+        opciones_suc = {"TODAS LAS SUCURSALES": None,
+                        **{s["nombre"]: s["id"] for s in sucursales}}
+    else:
+        opciones_suc = {s["nombre"]: s["id"] for s in sucursales}
+
+    col1, col2 = st.columns(2)
+    with col1:
+        suc_nombre = st.selectbox("Sucursal", list(opciones_suc.keys()))
+        suc_id = opciones_suc[suc_nombre]
+    with col2:
+        periodo = st.selectbox("Período", _periodos_ultimos_12(), format_func=nombre_mes)
+
+    st.divider()
+
+    if st.button("📄 Generar PDF", type="primary", use_container_width=False):
+        with st.spinner("Generando reporte..."):
+            datos = services.obtener_datos_reporte_pdf(suc_id, periodo)
+
+        if not datos["resumen"] and not datos["detalle"]:
+            st.info(f"No hay novedades para {nombre_mes(periodo)} en {suc_nombre}.")
+            return
+
+        usuario = st.session_state.user.get("nombre", "sistema")
+        consolidado = (suc_id is None)
+
+        from .pdf_reporte import generar_pdf_mensual
+        with st.spinner("Generando PDF..."):
+            pdf_bytes = generar_pdf_mensual(
+                datos_resumen=datos["resumen"],
+                datos_detalle=datos["detalle"],
+                sucursal_nombre=suc_nombre,
+                periodo=periodo,
+                usuario=usuario,
+                consolidado=consolidado,
+            )
+
+        nombre_archivo = (
+            f"novedades_{suc_nombre.lower().replace(' ', '_')}_{periodo}.pdf"
+        )
+
+        st.success(
+            f"✅ PDF generado: **{len(datos['resumen'])}** registros de resumen, "
+            f"**{len(datos['detalle'])}** registros de detalle."
+        )
+        st.download_button(
+            label="⬇️ Descargar PDF",
+            data=pdf_bytes,
+            file_name=nombre_archivo,
+            mime="application/pdf",
+            use_container_width=True,
+        )

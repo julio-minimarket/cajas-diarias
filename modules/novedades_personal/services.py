@@ -221,3 +221,23 @@ def obtener_novedades_por_sucursal(sucursal_id: int, fecha_desde: date, fecha_ha
 
 def generar_prelistado_mensual(sucursal_id: int, periodo: str):
     return queries.get_prelistado_mensual(sucursal_id, periodo)
+
+
+def obtener_datos_reporte_pdf(
+    sucursal_id: int | None,
+    periodo: str,
+) -> dict:
+    """
+    Reúne resumen y detalle día a día para el reporte PDF mensual.
+    sucursal_id=None → consolida TODAS las sucursales.
+    Devuelve {"resumen": [...], "detalle": [...]}
+    """
+    if sucursal_id is not None:
+        from .utils import periodo_a_rango_fechas
+        fd, fh = periodo_a_rango_fechas(periodo)
+        resumen = queries.get_prelistado_mensual(sucursal_id, periodo)
+        detalle = queries.get_novedades_por_sucursal(sucursal_id, fd, fh)
+    else:
+        resumen = queries.get_prelistado_todas_sucursales(periodo)
+        detalle = queries.get_novedades_todas_sucursales_mes(periodo)
+    return {"resumen": resumen, "detalle": detalle}

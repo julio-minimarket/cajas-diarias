@@ -10,6 +10,8 @@ from . import queries, services
 from .utils import lista_a_opciones_selectbox, novedades_a_dataframe
 import auth
 
+_PLACEHOLDER_EMP = "— Seleccionar empleado —"
+
 
 # ══════════════════════════════════════════════════════════════
 # PANTALLA PRINCIPAL DE CARGA
@@ -80,14 +82,13 @@ def pantalla_carga_diaria():
     # ── Formulario para cargar/editar novedad ────────────────
     st.subheader("➕ Cargar / Editar Novedad")
 
-    _PLACEHOLDER = "— Seleccionar empleado —"
-    opciones_emp = {_PLACEHOLDER: None} | {
+    opciones_emp = {_PLACEHOLDER_EMP: None} | {
         f"{e['apellido']}, {e['nombre']}": e for e in empleados
     }
     empleado_label = st.selectbox("Empleado", list(opciones_emp.keys()),
                                   key="sel_empleado_carga")
 
-    if empleado_label == _PLACEHOLDER:
+    if empleado_label == _PLACEHOLDER_EMP:
         st.info("Seleccioná un empleado del listado para cargar sus novedades.")
         return
 
@@ -179,7 +180,7 @@ def _guardar(empleado, sucursal_id, fecha, usuario, detalles):
         for k in list(st.session_state.keys()):
             if k.startswith("num_filas_novedad_") or k.startswith("snapshot_novedades_"):
                 del st.session_state[k]
-        st.session_state.pop("sel_empleado_carga", None)
+        st.session_state["sel_empleado_carga"] = _PLACEHOLDER_EMP
         st.rerun()
     except services.NovedadError as e:
         st.error(f"❌ {e}")
@@ -194,7 +195,7 @@ def _eliminar(empleado, fecha):
         for k in list(st.session_state.keys()):
             if k.startswith("num_filas_novedad_") or k.startswith("snapshot_novedades_"):
                 del st.session_state[k]
-        st.session_state.pop("sel_empleado_carga", None)
+        st.session_state["sel_empleado_carga"] = _PLACEHOLDER_EMP
         st.rerun()
     except services.NovedadError as e:
         st.error(f"❌ {e}")

@@ -168,8 +168,10 @@ def procesar_archivo_gastos(archivo_csv):
         df['TOTAL_GASTO'] = df['NETO'] + df['IVA_PERCEPCIONES']
         
         # Elimino filas sin datos válidos
+        # IMPORTANTE: Se permiten valores negativos (notas de crédito)
+        # Solo se eliminan filas con TOTAL_GASTO exactamente igual a cero o sin empresa
         df = df.dropna(subset=['Empresa'])
-        df = df[df['TOTAL_GASTO'] > 0]
+        df = df[df['TOTAL_GASTO'] != 0]
         
         return df
         

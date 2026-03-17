@@ -15,6 +15,16 @@ from datetime import datetime, date
 import os
 from pathlib import Path
 import calendar
+import io
+
+# ReportLab para generación de PDF
+from reportlab.lib.pagesizes import A4
+from reportlab.lib import colors
+from reportlab.lib.units import cm
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.enums import TA_CENTER, TA_RIGHT, TA_LEFT
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable
+from reportlab.platypus import KeepTogether
 
 
 
@@ -168,10 +178,8 @@ def procesar_archivo_gastos(archivo_csv):
         df['TOTAL_GASTO'] = df['NETO'] + df['IVA_PERCEPCIONES']
         
         # Elimino filas sin datos válidos
-        # IMPORTANTE: Se permiten valores negativos (notas de crédito)
-        # Solo se eliminan filas con TOTAL_GASTO exactamente igual a cero o sin empresa
         df = df.dropna(subset=['Empresa'])
-        df = df[df['TOTAL_GASTO'] != 0]
+        df = df[df['TOTAL_GASTO'] > 0]
         
         return df
         
@@ -1680,6 +1688,450 @@ def mostrar_tab_analisis(supabase, sucursales, mes_seleccionado, anio_selecciona
         )
 
 
+def generar_pdf_estado_resultados(df_merged, df_ingresos, sucursal_nombre, mes_seleccionado,
+                                   anio_seleccionado, total_ingresos, total_gastos):
+    """
+    Genera el Estado de Resultados Granular en formato PDF ejecutivo.
+    Retorna bytes del PDF listo para descargar.
+    """
+    buffer = io.BytesIO()
+    
+    meses = ['', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+             'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
+    nombre_mes = meses[mes_seleccionado]
+
+    # ── Colores corporativos ──────────────────────────────────────────────────
+    COLOR_HEADER    = colors.HexColor('#2c3e50')   # azul oscuro
+    COLOR_SECCION   = colors.HexColor('#34495e')   # gris azulado
+    COLOR_SUBTOTAL  = colors.HexColor('#7f8c8d')   # gris
+    COLOR_VERDE     = colors.HexColor('#27ae60')
+    COLOR_ROJO      = colors.HexColor('#e74c3c')
+    COLOR_FILA_PAR  = colors.HexColor('#f8f9fa')
+    COLOR_FILA_IMPAR= colors.white
+    COLOR_SUBRUBRO  = colors.HexColor('#ecf0f1')
+
+    # ── Estilos de párrafo ────────────────────────────────────────────────────
+    styles = getSampleStyleSheet()
+
+    estilo_titulo = ParagraphStyle('titulo',
+        fontSize=18, fontName='Helvetica-Bold',
+        textColor=COLOR_HEADER, alignment=TA_CENTER, spaceAfter=4)
+
+    estilo_subtitulo = ParagraphStyle('subtitulo',
+        fontSize=13, fontName='Helvetica',
+        textColor=COLOR_SECCION, alignment=TA_CENTER, spaceAfter=2)
+
+    estilo_sucursal = ParagraphStyle('sucursal',
+        fontSize=11, fontName='Helvetica',
+        textColor=colors.HexColor('#7f8c8d'), alignment=TA_CENTER, spaceAfter=10)
+
+    estilo_pie = ParagraphStyle('pie',
+        fontSize=8, fontName='Helvetica',
+        textColor=colors.HexColor('#95a5a6'), alignment=TA_CENTER)
+
+    # ── Documento A4 ─────────────────────────────────────────────────────────
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        leftMargin=1.8*cm, rightMargin=1.8*cm,
+        topMargin=1.5*cm, bottomMargin=1.5*cm,
+        title=f"Estado de Resultados - {sucursal_nombre} - {nombre_mes} {anio_seleccionado}",
+        author="Sistema P&L"
+    )
+
+    story = []
+    ancho_util = A4[0] - 3.6*cm   # ancho disponible
+
+    # ── Función auxiliar: fila de item ────────────────────────────────────────
+    def calcular_item(cod_inf):
+        """Retorna (total_item, lista_subrubros) sin renderizar pantalla"""
+        sub = df_merged[df_merged['cod_inf'] == cod_inf]
+        if sub.empty:
+            return 0, []
+        total = sub['total'].sum()
+        agrupados = sub.groupby('subrubro_norm')['total'].sum()
+        detalles = [(srub, monto) for srub, monto in agrupados.items() if monto != 0]
+        return total, detalles
+
+    def fmt_pesos(valor):
+        """Formatea un número como moneda argentina"""
+        if valor < 0:
+            return f"(${abs(valor):,.2f})"
+        return f"${valor:,.2f}"
+
+    def fmt_pct(valor, base):
+        if base == 0:
+            return "0.00%"
+        return f"{valor/base*100:.2f}%"
+
+    # ── Estilo base para tablas de items ──────────────────────────────────────
+    def tabla_items_style(filas_datos, color_impar=COLOR_FILA_IMPAR, color_par=COLOR_FILA_PAR):
+        cmds = [
+            ('FONTNAME',    (0,0), (-1,-1), 'Helvetica'),
+            ('FONTSIZE',    (0,0), (-1,-1), 9),
+            ('TEXTCOLOR',   (0,0), (-1,-1), COLOR_HEADER),
+            ('ALIGN',       (1,0), (-1,-1), 'RIGHT'),
+            ('LINEBELOW',   (0,0), (-1,-1), 0.3, colors.HexColor('#ecf0f1')),
+            ('LEFTPADDING',  (0,0), (-1,-1), 6),
+            ('RIGHTPADDING', (0,0), (-1,-1), 6),
+            ('TOPPADDING',   (0,0), (-1,-1), 4),
+            ('BOTTOMPADDING',(0,0), (-1,-1), 4),
+        ]
+        for i in range(filas_datos):
+            bg = color_par if i % 2 == 0 else color_impar
+            cmds.append(('BACKGROUND', (0,i), (-1,i), bg))
+        return TableStyle(cmds)
+
+    # ════════════════════════════════════════════════════════════════════════
+    # CABECERA DEL INFORME
+    # ════════════════════════════════════════════════════════════════════════
+    story.append(Paragraph("ESTADO DE RESULTADOS GRANULAR", estilo_titulo))
+    story.append(Paragraph(f"{nombre_mes.upper()} {anio_seleccionado}", estilo_subtitulo))
+    story.append(Paragraph(sucursal_nombre.upper(), estilo_sucursal))
+    story.append(HRFlowable(width="100%", thickness=2, color=COLOR_HEADER, spaceAfter=10))
+
+    # ── KPIs resumen (4 celdas) ───────────────────────────────────────────────
+    resultado_kpi  = total_ingresos - total_gastos
+    margen_kpi     = (resultado_kpi / total_ingresos * 100) if total_ingresos > 0 else 0
+    color_res_kpi  = COLOR_VERDE if resultado_kpi >= 0 else COLOR_ROJO
+    color_mar_kpi  = COLOR_VERDE if margen_kpi >= 0 else COLOR_ROJO
+
+    kpi_data = [[
+        Paragraph(f'<font color="#7f8c8d" size="8"><b>INGRESOS</b></font><br/>'
+                  f'<font color="{COLOR_VERDE.hexval()}" size="12"><b>{fmt_pesos(total_ingresos)}</b></font>', styles['Normal']),
+        Paragraph(f'<font color="#7f8c8d" size="8"><b>GASTOS</b></font><br/>'
+                  f'<font color="{COLOR_ROJO.hexval()}" size="12"><b>{fmt_pesos(total_gastos)}</b></font>', styles['Normal']),
+        Paragraph(f'<font color="#7f8c8d" size="8"><b>RESULTADO</b></font><br/>'
+                  f'<font color="{color_res_kpi.hexval()}" size="12"><b>{fmt_pesos(resultado_kpi)}</b></font>', styles['Normal']),
+        Paragraph(f'<font color="#7f8c8d" size="8"><b>MARGEN</b></font><br/>'
+                  f'<font color="{color_mar_kpi.hexval()}" size="12"><b>{margen_kpi:.2f}%</b></font>', styles['Normal']),
+    ]]
+    w4 = ancho_util / 4
+    t_kpi = Table(kpi_data, colWidths=[w4]*4)
+    t_kpi.setStyle(TableStyle([
+        ('BACKGROUND',   (0,0), (-1,-1), COLOR_FILA_PAR),
+        ('BOX',          (0,0), (-1,-1), 0.5, colors.HexColor('#dee2e6')),
+        ('INNERGRID',    (0,0), (-1,-1), 0.3, colors.HexColor('#dee2e6')),
+        ('ALIGN',        (0,0), (-1,-1), 'CENTER'),
+        ('VALIGN',       (0,0), (-1,-1), 'MIDDLE'),
+        ('TOPPADDING',   (0,0), (-1,-1), 8),
+        ('BOTTOMPADDING',(0,0), (-1,-1), 8),
+        ('ROUNDEDCORNERS', [4]),
+    ]))
+    story.append(t_kpi)
+    story.append(Spacer(1, 14))
+
+    # ════════════════════════════════════════════════════════════════════════
+    # SECCIÓN INGRESOS
+    # ════════════════════════════════════════════════════════════════════════
+    def header_seccion(texto):
+        t = Table([[Paragraph(f'<font color="white"><b>{texto}</b></font>',
+                              ParagraphStyle('sh', fontSize=11, fontName='Helvetica-Bold',
+                                             textColor=colors.white))]],
+                  colWidths=[ancho_util])
+        t.setStyle(TableStyle([
+            ('BACKGROUND',    (0,0), (-1,-1), COLOR_SECCION),
+            ('TOPPADDING',    (0,0), (-1,-1), 6),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+            ('LEFTPADDING',   (0,0), (-1,-1), 8),
+        ]))
+        return t
+
+    story.append(header_seccion("VENTAS / INGRESOS"))
+    story.append(Spacer(1, 4))
+
+    # Filas de ingresos
+    filas_ing = []
+    COL_W = [ancho_util*0.55, ancho_util*0.25, ancho_util*0.20]
+
+    if not df_ingresos.empty and 'categoria_id' in df_ingresos.columns:
+        ing_otros = df_ingresos[df_ingresos['categoria_id'] != 2]['monto'].sum()
+        ing_pya   = df_ingresos[df_ingresos['categoria_id'] == 2]['monto'].sum()
+        if ing_otros > 0:
+            filas_ing.append(["Ventas / Ingresos (otros medios)",
+                               fmt_pesos(ing_otros),
+                               fmt_pct(ing_otros, total_ingresos)])
+        if ing_pya > 0:
+            filas_ing.append(["Ventas Pedidos Ya",
+                               fmt_pesos(ing_pya),
+                               fmt_pct(ing_pya, total_ingresos)])
+    elif not df_ingresos.empty:
+        filas_ing.append(["Ventas / Ingresos",
+                           fmt_pesos(total_ingresos), "100.00%"])
+
+    if filas_ing:
+        t = Table(filas_ing, colWidths=COL_W)
+        t.setStyle(tabla_items_style(len(filas_ing)))
+        story.append(t)
+
+    # Total ingresos
+    t_tot_ing = Table(
+        [[Paragraph('<b>TOTAL INGRESOS</b>',
+                    ParagraphStyle('ti', fontSize=10, fontName='Helvetica-Bold', textColor=COLOR_HEADER)),
+          Paragraph(f'<b>{fmt_pesos(total_ingresos)}</b>',
+                    ParagraphStyle('tiv', fontSize=10, fontName='Helvetica-Bold',
+                                   textColor=COLOR_HEADER, alignment=TA_RIGHT)),
+          ""]],
+        colWidths=COL_W)
+    t_tot_ing.setStyle(TableStyle([
+        ('LINEABOVE',     (0,0), (-1,-1), 1.5, COLOR_SECCION),
+        ('TOPPADDING',    (0,0), (-1,-1), 5),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 5),
+        ('LEFTPADDING',   (0,0), (-1,-1), 6),
+        ('RIGHTPADDING',  (0,0), (-1,-1), 6),
+        ('ALIGN',         (1,0), (2,0), 'RIGHT'),
+    ]))
+    story.append(t_tot_ing)
+    story.append(Spacer(1, 12))
+
+    # ════════════════════════════════════════════════════════════════════════
+    # SECCIÓN EGRESOS
+    # ════════════════════════════════════════════════════════════════════════
+    story.append(header_seccion("COMPRAS / EGRESOS"))
+    story.append(Spacer(1, 4))
+
+    def agregar_grupo(items_def, label_subtotal):
+        """
+        items_def: lista de (cod_inf, nombre)
+        Agrega las filas del grupo al story y retorna el subtotal.
+        """
+        filas = []
+        subtotal = 0
+        for cod_inf, nombre in items_def:
+            total_item, detalles = calcular_item(cod_inf)
+            if total_item == 0:
+                continue
+            pct = fmt_pct(total_item, total_gastos)
+            filas.append([
+                Paragraph(f'<b>{nombre}</b>',
+                          ParagraphStyle('ni', fontSize=9, fontName='Helvetica-Bold',
+                                         textColor=COLOR_HEADER)),
+                Paragraph(f'<b>{fmt_pesos(total_item)}</b>',
+                          ParagraphStyle('niv', fontSize=9, fontName='Helvetica-Bold',
+                                         textColor=COLOR_HEADER, alignment=TA_RIGHT)),
+                Paragraph(f'<b>{pct}</b>',
+                          ParagraphStyle('nip', fontSize=9, fontName='Helvetica-Bold',
+                                         textColor=COLOR_HEADER, alignment=TA_RIGHT)),
+            ])
+            for srub, monto in detalles:
+                pct_s = fmt_pct(monto, total_gastos)
+                filas.append([
+                    Paragraph(f'  └─ {srub.title()}',
+                              ParagraphStyle('sr', fontSize=8, fontName='Helvetica',
+                                             textColor=colors.HexColor('#7f8c8d'))),
+                    Paragraph(fmt_pesos(monto),
+                              ParagraphStyle('srv', fontSize=8, fontName='Helvetica',
+                                             textColor=colors.HexColor('#7f8c8d'), alignment=TA_RIGHT)),
+                    Paragraph(pct_s,
+                              ParagraphStyle('srp', fontSize=8, fontName='Helvetica',
+                                             textColor=colors.HexColor('#95a5a6'), alignment=TA_RIGHT)),
+                ])
+            subtotal += total_item
+
+        if not filas:
+            return 0
+
+        t = Table(filas, colWidths=COL_W)
+        cmds = [
+            ('ALIGN',        (1,0), (-1,-1), 'RIGHT'),
+            ('LINEBELOW',    (0,0), (-1,-1), 0.3, colors.HexColor('#ecf0f1')),
+            ('LEFTPADDING',  (0,0), (-1,-1), 6),
+            ('RIGHTPADDING', (0,0), (-1,-1), 6),
+            ('TOPPADDING',   (0,0), (-1,-1), 3),
+            ('BOTTOMPADDING',(0,0), (-1,-1), 3),
+        ]
+        # Alternar colores fila principal vs subrubro
+        i = 0
+        for cod_inf, nombre in items_def:
+            tot_item, dets = calcular_item(cod_inf)
+            if tot_item == 0:
+                continue
+            cmds.append(('BACKGROUND', (0,i), (-1,i), COLOR_FILA_PAR))
+            i += 1
+            for _ in dets:
+                cmds.append(('BACKGROUND', (0,i), (-1,i), COLOR_SUBRUBRO))
+                i += 1
+        t.setStyle(TableStyle(cmds))
+        story.append(t)
+
+        # Subtotal del grupo
+        if subtotal > 0:
+            pct_st = fmt_pct(subtotal, total_gastos)
+            t_sub = Table(
+                [[Paragraph(f'→ <b>{label_subtotal}</b>',
+                             ParagraphStyle('lst', fontSize=9, fontName='Helvetica-Bold',
+                                            textColor=COLOR_HEADER)),
+                  Paragraph(f'<b>{fmt_pesos(subtotal)}</b>',
+                             ParagraphStyle('lstv', fontSize=9, fontName='Helvetica-Bold',
+                                            textColor=COLOR_HEADER, alignment=TA_RIGHT)),
+                  Paragraph(f'<b>{pct_st}</b>',
+                             ParagraphStyle('lstp', fontSize=9, fontName='Helvetica-Bold',
+                                            textColor=COLOR_SUBTOTAL, alignment=TA_RIGHT))]],
+                colWidths=COL_W)
+            t_sub.setStyle(TableStyle([
+                ('LINEABOVE',     (0,0), (-1,-1), 1, COLOR_SUBTOTAL),
+                ('TOPPADDING',    (0,0), (-1,-1), 4),
+                ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+                ('LEFTPADDING',   (0,0), (-1,-1), 6),
+                ('RIGHTPADDING',  (0,0), (-1,-1), 6),
+                ('ALIGN',         (1,0), (2,0), 'RIGHT'),
+            ]))
+            story.append(t_sub)
+        story.append(Spacer(1, 6))
+        return subtotal
+
+    # ── Los 5 grupos operativos ───────────────────────────────────────────────
+    st1 = agregar_grupo(
+        [(1, "Costo de Mercadería Consumida (CMC)"),
+         (2, "Gastos de Personal"),
+         (3, "Cargas sociales"),
+         (4, "Sindicatos")],
+        "Subtotal sueldos y CMC")
+
+    st2 = agregar_grupo(
+        [(5, "Alquiler"),
+         (6, "Servicios")],
+        "Subtotal alquileres y servicios")
+
+    st3 = agregar_grupo(
+        [(7, "Honorarios profesionales"),
+         (8, "Publicidad")],
+        "Subtotal de honorarios")
+
+    st4 = agregar_grupo(
+        [(9, "Materiales"),
+         (10, "Mantenimiento"),
+         (11, "Bienes de uso")],
+        "Subtotal de mantenimiento y bienes de uso")
+
+    st5 = agregar_grupo(
+        [(12, "Royalties"),
+         (18, "Servicios administrativos/logísticos")],
+        "Subtotal de royalties y logística")
+
+    # ── Total egresos operativos ──────────────────────────────────────────────
+    total_op = st1 + st2 + st3 + st4 + st5
+    saldo_imp_ret = total_ingresos - total_op
+
+    t_teo = Table(
+        [[Paragraph('<b>TOTAL DE EGRESOS</b>',
+                    ParagraphStyle('teo', fontSize=10, fontName='Helvetica-Bold', textColor=COLOR_HEADER)),
+          Paragraph(f'<b>{fmt_pesos(total_op)}</b>',
+                    ParagraphStyle('teov', fontSize=10, fontName='Helvetica-Bold',
+                                   textColor=COLOR_HEADER, alignment=TA_RIGHT)),
+          ""]],
+        colWidths=COL_W)
+    t_teo.setStyle(TableStyle([
+        ('LINEABOVE',     (0,0), (-1,-1), 1.5, COLOR_SECCION),
+        ('TOPPADDING',    (0,0), (-1,-1), 5),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 5),
+        ('LEFTPADDING',   (0,0), (-1,-1), 6),
+        ('RIGHTPADDING',  (0,0), (-1,-1), 6),
+        ('ALIGN',         (1,0), (2,0), 'RIGHT'),
+    ]))
+    story.append(t_teo)
+
+    # ── Saldo para impuestos y retiros ────────────────────────────────────────
+    t_saldo = Table(
+        [[Paragraph('<b>SALDO PARA IMPUESTOS Y RETIROS</b>',
+                    ParagraphStyle('sal', fontSize=10, fontName='Helvetica-Bold', textColor=COLOR_VERDE)),
+          Paragraph(f'<b>{fmt_pesos(saldo_imp_ret)}</b>',
+                    ParagraphStyle('salv', fontSize=10, fontName='Helvetica-Bold',
+                                   textColor=COLOR_VERDE, alignment=TA_RIGHT)),
+          ""]],
+        colWidths=COL_W)
+    t_saldo.setStyle(TableStyle([
+        ('LINEABOVE',     (0,0), (-1,-1), 1, COLOR_VERDE),
+        ('TOPPADDING',    (0,0), (-1,-1), 5),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 5),
+        ('LEFTPADDING',   (0,0), (-1,-1), 6),
+        ('RIGHTPADDING',  (0,0), (-1,-1), 6),
+        ('ALIGN',         (1,0), (2,0), 'RIGHT'),
+    ]))
+    story.append(t_saldo)
+    story.append(Spacer(1, 8))
+
+    # ── Grupo 6: Retiros ──────────────────────────────────────────────────────
+    tot_ret = agregar_grupo([(19, "Retiros")], "Subtotal de retiros")
+
+    # ── Grupo 7: Impuestos y bancarios ────────────────────────────────────────
+    st7 = agregar_grupo(
+        [(13, "Gastos y comisiones bancarias/tarjetas"),
+         (14, "Impuestos municipales"),
+         (15, "Impuestos provinciales"),
+         (16, "Impuestos nacionales"),
+         (17, "Iva a pagar")],
+        "Subtotal de impuestos")
+
+    # ── TOTAL EGRESOS FINAL ───────────────────────────────────────────────────
+    total_final = total_op + tot_ret + st7
+    t_tef = Table(
+        [[Paragraph('<b>TOTAL EGRESOS</b>',
+                    ParagraphStyle('tef', fontSize=11, fontName='Helvetica-Bold', textColor=COLOR_HEADER)),
+          Paragraph(f'<b>{fmt_pesos(total_final)}</b>',
+                    ParagraphStyle('tefv', fontSize=11, fontName='Helvetica-Bold',
+                                   textColor=COLOR_HEADER, alignment=TA_RIGHT)),
+          ""]],
+        colWidths=COL_W)
+    t_tef.setStyle(TableStyle([
+        ('LINEABOVE',     (0,0), (-1,-1), 2, COLOR_SECCION),
+        ('TOPPADDING',    (0,0), (-1,-1), 6),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+        ('LEFTPADDING',   (0,0), (-1,-1), 6),
+        ('RIGHTPADDING',  (0,0), (-1,-1), 6),
+        ('ALIGN',         (1,0), (2,0), 'RIGHT'),
+    ]))
+    story.append(t_tef)
+    story.append(Spacer(1, 12))
+
+    # ════════════════════════════════════════════════════════════════════════
+    # RESULTADO OPERATIVO FINAL
+    # ════════════════════════════════════════════════════════════════════════
+    resultado_final = total_ingresos - total_final
+    pct_res_final   = (resultado_final / total_ingresos * 100) if total_ingresos > 0 else 0
+    color_res_final = COLOR_VERDE if resultado_final >= 0 else COLOR_ROJO
+    texto_signo     = "GANANCIA" if resultado_final >= 0 else "PÉRDIDA"
+
+    t_res = Table(
+        [[Paragraph(f'<b>RESULTADO OPERATIVO ESTIMADO</b>',
+                    ParagraphStyle('rof', fontSize=12, fontName='Helvetica-Bold',
+                                   textColor=color_res_final)),
+          Paragraph(f'<b>{fmt_pesos(resultado_final)}</b>',
+                    ParagraphStyle('rofv', fontSize=14, fontName='Helvetica-Bold',
+                                   textColor=color_res_final, alignment=TA_RIGHT)),
+          Paragraph(f'<b>({pct_res_final:.2f}%)</b>',
+                    ParagraphStyle('rofp', fontSize=11, fontName='Helvetica-Bold',
+                                   textColor=color_res_final, alignment=TA_RIGHT))]],
+        colWidths=COL_W)
+    t_res.setStyle(TableStyle([
+        ('BACKGROUND',    (0,0), (-1,-1), colors.HexColor(
+            '#d5f5e3' if resultado_final >= 0 else '#fadbd8')),
+        ('LINEABOVE',     (0,0), (-1,-1), 2, color_res_final),
+        ('LINEBEFORE',    (0,0), (0,-1), 4, color_res_final),
+        ('TOPPADDING',    (0,0), (-1,-1), 10),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 10),
+        ('LEFTPADDING',   (0,0), (-1,-1), 10),
+        ('RIGHTPADDING',  (0,0), (-1,-1), 6),
+        ('ALIGN',         (1,0), (2,0), 'RIGHT'),
+        ('ROUNDEDCORNERS', [4]),
+    ]))
+    story.append(KeepTogether(t_res))
+
+    # ── Pie de página ─────────────────────────────────────────────────────────
+    story.append(Spacer(1, 16))
+    story.append(HRFlowable(width="100%", thickness=0.5, color=COLOR_SUBTOTAL))
+    story.append(Spacer(1, 4))
+    story.append(Paragraph(
+        f"Informe generado el {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}  |  "
+        f"Período: {nombre_mes} {anio_seleccionado}  |  Sucursal: {sucursal_nombre}",
+        estilo_pie))
+
+    # ── Construir PDF ─────────────────────────────────────────────────────────
+    doc.build(story)
+    buffer.seek(0)
+    return buffer.read()
+
+
 def mostrar_estado_resultados_granular(supabase, sucursales, mes_seleccionado, anio_seleccionado, sucursal_seleccionada):
     """
     Genera el Estado de Resultados Granular con estructura jerárquica y diseño profesional
@@ -2091,6 +2543,28 @@ def mostrar_estado_resultados_granular(supabase, sucursales, mes_seleccionado, a
         </div>
     </div>
     """, unsafe_allow_html=True)
+
+    # ── Botón de descarga PDF ────────────────────────────────────────────────
+    st.markdown("---")
+    col_pdf1, col_pdf2, col_pdf3 = st.columns([1, 2, 1])
+    with col_pdf2:
+        meses_nombres = ['', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+                         'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
+        with st.spinner("Preparando PDF..."):
+            pdf_bytes = generar_pdf_estado_resultados(
+                df_merged, df_ingresos, sucursal_nombre,
+                mes_seleccionado, anio_seleccionado,
+                total_ingresos, total_gastos
+            )
+        nombre_pdf = f"Estado_Resultados_{sucursal_nombre}_{meses_nombres[mes_seleccionado]}_{anio_seleccionado}.pdf"
+        st.download_button(
+            label="📄 Descargar Estado de Resultados (PDF)",
+            data=pdf_bytes,
+            file_name=nombre_pdf,
+            mime="application/pdf",
+            width="stretch",
+            key="download_granular_pdf"
+        )
 
 
 def mostrar_tab_evolucion(supabase, sucursales, mes_seleccionado, anio_seleccionado, sucursal_seleccionada):

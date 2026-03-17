@@ -8,3 +8,4 @@ requests
 openpyxl
 plotly
 fpdf2
+reportlab
